@@ -1,4 +1,4 @@
-# SMT Programmer Tools - Qt Remake
+# SMT Programmer Tools
 
 PySide6 remake of the original CustomTkinter app in `BomAppCompare_Remake`.
 
