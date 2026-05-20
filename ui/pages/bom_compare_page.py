@@ -178,7 +178,7 @@ class BomComparePage(WorkerPage):
         self.register_model(self.result_model)
         self.result_table = QTableView()
         configure_table(self.result_table, self.result_model)
-        install_copy_menu(self.result_table, self.result_model, clean_copy=True)
+        install_copy_menu(self.result_table, self.result_model, clean_copy=True, copy_all_excluded_keys={"side"})
         card.layout.addWidget(self.result_table, 1)
         return card
 

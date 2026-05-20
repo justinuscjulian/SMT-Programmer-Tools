@@ -215,18 +215,18 @@ class MachineComparePage(WorkerPage):
         layout.addWidget(title)
 
         columns = [
-            ColumnSpec("circuit", "Circuit No", Qt.AlignCenter, 120),
-            ColumnSpec("x", "X Coordinate", Qt.AlignCenter, 120),
-            ColumnSpec("y", "Y Coordinate", Qt.AlignCenter, 120),
-            ColumnSpec("angle", "Angle", Qt.AlignCenter, 90),
-            ColumnSpec("partno", "Parts Number", Qt.AlignCenter, 130),
-            ColumnSpec("parts", "Parts", Qt.AlignLeft, 180),
-            ColumnSpec("type", "Type", Qt.AlignCenter, 80),
+            ColumnSpec("circuit", "Circuit No", Qt.AlignCenter, 82),
+            ColumnSpec("x", "X Coordinate", Qt.AlignCenter, 86),
+            ColumnSpec("y", "Y Coordinate", Qt.AlignCenter, 86),
+            ColumnSpec("angle", "Angle", Qt.AlignCenter, 62),
+            ColumnSpec("partno", "Parts Number", Qt.AlignCenter, 104),
+            ColumnSpec("parts", "Parts", Qt.AlignLeft, 142),
+            ColumnSpec("type", "Type", Qt.AlignCenter, 58),
         ]
         model = RecordTableModel(columns, status_key="type", theme=self.theme_manager.theme)
         self.register_model(model)
         table = QTableView()
-        configure_table(table, model)
+        configure_table(table, model, wrap_headers=True)
         install_copy_menu(table, model, allow_cell_column=True)
         layout.addWidget(table, 1)
 

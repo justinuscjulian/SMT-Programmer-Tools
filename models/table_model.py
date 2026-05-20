@@ -81,17 +81,20 @@ class RecordTableModel(QAbstractTableModel):
             bottom_right = self.index(len(self.records) - 1, len(self.columns) - 1)
             self.dataChanged.emit(top_left, bottom_right, [Qt.BackgroundRole, Qt.ForegroundRole])
 
-    def selected_rows_as_tsv(self, row_numbers, include_headers=True, clean_copy=False):
+    def selected_rows_as_tsv(self, row_numbers, include_headers=True, clean_copy=False, excluded_keys=None):
         rows = [self.records[i] for i in row_numbers if 0 <= i < len(self.records)]
-        return self.records_as_tsv(rows, include_headers=include_headers, clean_copy=clean_copy)
+        return self.records_as_tsv(rows, include_headers=include_headers, clean_copy=clean_copy, excluded_keys=excluded_keys)
 
-    def all_as_tsv(self, include_headers=True, clean_copy=False):
-        return self.records_as_tsv(self.records, include_headers=include_headers, clean_copy=clean_copy)
+    def all_as_tsv(self, include_headers=True, clean_copy=False, excluded_keys=None):
+        return self.records_as_tsv(self.records, include_headers=include_headers, clean_copy=clean_copy, excluded_keys=excluded_keys)
 
-    def records_as_tsv(self, rows, include_headers=True, clean_copy=False):
+    def records_as_tsv(self, rows, include_headers=True, clean_copy=False, excluded_keys=None):
         columns = self.columns
         if clean_copy and len(columns) > 2:
             columns = columns[1:-1]
+        if excluded_keys:
+            excluded_keys = set(excluded_keys)
+            columns = [column for column in columns if column.key not in excluded_keys]
 
         output = []
         if include_headers and not clean_copy:
