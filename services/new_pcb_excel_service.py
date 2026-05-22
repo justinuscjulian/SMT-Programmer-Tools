@@ -364,49 +364,49 @@ def _sort_value(value):
 
 
 def _dx_source_rows(cad_rows):
-    row_chip_top = 0
-    row_dip_bottom = 0
-    row_chip_bottom = 0
-    dip_count = 0
-    chip_count = 0
+    sorting_headers = []
+    for idx, row in enumerate(cad_rows):
+        kind = _cad_sorting_kind(row)
+        if kind:
+            sorting_headers.append((idx, kind))
 
-    for idx, row in enumerate(cad_rows, start=1):
-        label = str(row[0] if row else "")
-        if "DIP" in label and "Sorting" in label and "###" in label:
-            dip_count += 1
-            if dip_count == 2:
-                row_dip_bottom = idx
-        if "CHIP" in label and "Sorting" in label and "###" in label:
-            chip_count += 1
-            if chip_count == 1:
-                row_chip_top = idx
-            if chip_count == 2:
-                row_chip_bottom = idx
+    source_rows = []
+    for header_pos, kind in sorting_headers:
+        if kind != "CHIP":
+            continue
+        next_header_pos = next(
+            (idx for idx, _ in sorting_headers if idx > header_pos),
+            len(cad_rows),
+        )
+        source_rows.extend(cad_rows[header_pos + 1 : next_header_pos])
 
-    if not row_chip_top or not row_dip_bottom or not row_chip_bottom:
+    source_rows = [
+        list(row)
+        for row in source_rows
+        if any(value is not None and str(value).strip() for value in row)
+    ]
+
+    if not source_rows:
+        header_summary = ", ".join(f"{kind}@{idx + 1}" for idx, kind in sorting_headers) or "tidak ada"
         raise ServiceError(
-            "Header Sorting CAD tidak lengkap.\n"
-            f"CHIP Top: {row_chip_top}, DIP Bottom: {row_dip_bottom}, CHIP Bottom: {row_chip_bottom}",
+            "Data CHIP Sorting tidak ditemukan di CAD Data.\n"
+            f"Header Sorting terdeteksi: {header_summary}",
             title="Format CAD tidak valid",
         )
 
-    rows = [list(row) for row in cad_rows]
-    del_bottom_start = row_dip_bottom - 1 if _is_blank_first_cell(rows, row_dip_bottom - 1) else row_dip_bottom
-    del_bottom_end = row_chip_bottom + 1 if _is_blank_first_cell(rows, row_chip_bottom + 1) else row_chip_bottom
-    del_top_end = row_chip_top + 1 if _is_blank_first_cell(rows, row_chip_top + 1) else row_chip_top
-
-    del rows[del_bottom_start - 1 : del_bottom_end]
-    del rows[0:del_top_end]
-    return [row for row in rows if any(value is not None and str(value).strip() for value in row)]
+    return source_rows
 
 
-def _is_blank_first_cell(rows, one_based_row):
-    if one_based_row < 1 or one_based_row > len(rows):
-        return False
-    row = rows[one_based_row - 1]
-    if not row:
-        return True
-    return str(row[0] or "").strip() == ""
+def _cad_sorting_kind(row):
+    label = str(row[0] if row else "")
+    label_upper = label.upper()
+    if "SORTING" not in label_upper or "###" not in label:
+        return ""
+    if "CHIP" in label_upper:
+        return "CHIP"
+    if "DIP" in label_upper:
+        return "DIP"
+    return ""
 
 
 def _find_component_row(rows, name):

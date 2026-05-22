@@ -7,7 +7,6 @@ if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 
 from PySide6.QtWidgets import QApplication
-
 from themes.theme_manager import ThemeManager
 from ui.main_window import MainWindow
 from utils.paths import set_windows_app_id
