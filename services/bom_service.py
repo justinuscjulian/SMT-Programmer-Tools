@@ -135,31 +135,31 @@ def load_raw_bom(file_path, check_duplicate_circuits=False):
     df = data.copy()
     df.fillna("", inplace=True)
 
-    chassis_pn = "Unknown"
-    generic_chassis_pn = ""
-    assembly_pn_by_side = {"ORP": "", "BPR": ""}
     col_map = {str(col).lower().strip(): col for col in df.columns}
     col_parent = col_map.get("parent")
     col_parent_desc = col_map.get("parent description")
+    col_level = col_map.get("level")
 
-    if col_parent and col_parent_desc:
+    chassis_pn = _extract_root_parent_part_number(df, col_parent, col_level)
+    if chassis_pn == "Unknown" and col_parent and col_parent_desc:
+        fallback_pn = ""
         for _, row in df.iterrows():
             pdesc = str(row[col_parent_desc]).lower().replace(" ", "")
             ppart = str(row[col_parent]).strip()
             if "orptotalassembly" in pdesc:
-                assembly_pn_by_side["ORP"] = assembly_pn_by_side["ORP"] or ppart
+                fallback_pn = fallback_pn or ppart
                 continue
             if "bprtotalassembly" in pdesc:
-                assembly_pn_by_side["BPR"] = assembly_pn_by_side["BPR"] or ppart
+                fallback_pn = fallback_pn or ppart
                 continue
             if "chassisassembly" in pdesc:
-                generic_chassis_pn = generic_chassis_pn or ppart
+                fallback_pn = fallback_pn or ppart
                 continue
             if "pcbassembly,main" in pdesc:
-                generic_chassis_pn = generic_chassis_pn or ppart
+                fallback_pn = fallback_pn or ppart
                 continue
 
-        chassis_pn = assembly_pn_by_side["ORP"] or assembly_pn_by_side["BPR"] or generic_chassis_pn or "Unknown"
+        chassis_pn = fallback_pn or "Unknown"
 
     col_child = col_map.get("child")
     col_designators = col_map.get("designators")
@@ -199,11 +199,10 @@ def load_raw_bom(file_path, check_duplicate_circuits=False):
                 spec_val = raw_spec[:60]
 
         child_val = str(row[col_child]).strip()
-        chassis_val = assembly_pn_by_side.get(side_val) or chassis_pn
         for designator in designators:
             output_rows.append(
                 {
-                    "Chassis": chassis_val,
+                    "Chassis": chassis_pn,
                     "Circuit": designator,
                     "PartNo": child_val,
                     "Spec": spec_val,
@@ -225,6 +224,25 @@ def load_raw_bom(file_path, check_duplicate_circuits=False):
         pcb_pn=pcb_pn,
         timestamp=datetime.now().strftime("%d/%m/%Y %H:%M"),
     )
+
+
+def _extract_root_parent_part_number(df, col_parent, col_level):
+    if not col_parent:
+        return "Unknown"
+
+    if col_level:
+        for _, row in df.iterrows():
+            level = str(row[col_level]).strip()
+            parent = str(row[col_parent]).strip()
+            if parent and level in {"1", "1.0"}:
+                return parent
+
+    for _, row in df.iterrows():
+        parent = str(row[col_parent]).strip()
+        if parent:
+            return parent
+
+    return "Unknown"
 
 
 def compare_bom(reference_df, raw_df):
