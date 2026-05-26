@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 import tempfile
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -13,6 +14,7 @@ EXCEL_EXTENSIONS = (".xls", ".xlsx", ".xlsm", ".xlsb")
 XL_CALCULATION_MANUAL = -4135
 XL_CALCULATION_AUTOMATIC = -4105
 XLSX_FILE_FORMAT = 51
+COM_BUSY_HRESULTS = {-2147418111, -2147417846, -2147417845}
 
 
 @dataclass
@@ -51,7 +53,7 @@ def generate_insert_point(config: InsertPointConfig):
     pythoncom.CoInitialize()
     try:
         try:
-            excel = win32.DispatchEx("Excel.Application")
+            excel = _excel_call(lambda: win32.DispatchEx("Excel.Application"))
         except Exception as exc:
             raise ServiceError(
                 "Microsoft Excel tidak bisa dibuka. Pastikan Excel terinstall dan tidak sedang menampilkan dialog.",
@@ -61,16 +63,20 @@ def generate_insert_point(config: InsertPointConfig):
         _configure_excel_for_background(excel)
 
         with tempfile.TemporaryDirectory(prefix="smt_insert_point_") as temp_dir:
-            plan_wb = excel.Workbooks.Open(config.plan_path, ReadOnly=True)
-            ws_plan = plan_wb.ActiveSheet
+            plan_wb = _open_workbook(
+                excel,
+                config.plan_path,
+                ReadOnly=True,
+            )
+            ws_plan = _excel_call(lambda: plan_wb.ActiveSheet)
 
             for row in range(config.start_row, config.end_row + 1):
-                part_num = str(ws_plan.Cells(row, "G").Value or "").strip()
+                part_num = str(_cell_value(ws_plan, row, "G") or "").strip()
                 if not part_num:
                     continue
 
-                model_name = str(ws_plan.Cells(row, "D").Value or "").strip()
-                pcb_num = str(ws_plan.Cells(row, "I").Value or "").strip()
+                model_name = str(_cell_value(ws_plan, row, "D") or "").strip()
+                pcb_num = str(_cell_value(ws_plan, row, "I") or "").strip()
 
                 if "." in model_name:
                     model_name = model_name.split(".")[0]
@@ -98,12 +104,12 @@ def generate_insert_point(config: InsertPointConfig):
                     wb_prog, temp_path = open_workbook_robust(excel, target_file, temp_dir)
 
                     try:
-                        ws_dx = wb_prog.Worksheets("DX")
+                        ws_dx = _excel_call(lambda: wb_prog.Worksheets("DX"))
                     except Exception:
                         errors.append([part_num, pcb_num, target_file, "Sheet 'DX' tidak ada"])
                         continue
 
-                    insert_val = ws_dx.Range("T9").Value
+                    insert_val = _range_value(ws_dx, "T9")
 
                     if insert_val is None or str(insert_val).strip() == "":
                         errors.append([part_num, pcb_num, target_file, "Cell T9 kosong"])
@@ -123,13 +129,13 @@ def generate_insert_point(config: InsertPointConfig):
             _close_workbook(plan_wb)
             plan_wb = None
 
-            out_wb = excel.Workbooks.Add()
+            out_wb = _excel_call(lambda: excel.Workbooks.Add())
             _write_output_workbook(out_wb, success, errors)
 
             if output_path.exists():
                 output_path.unlink()
 
-            out_wb.SaveAs(str(output_path), FileFormat=XLSX_FILE_FORMAT)
+            _excel_call(lambda: out_wb.SaveAs(str(output_path), FileFormat=XLSX_FILE_FORMAT))
             _close_workbook(out_wb)
             out_wb = None
 
@@ -199,14 +205,7 @@ def find_target_file(main_folder, pcb_num, num_only):
 def open_workbook_robust(excel, source_path, temp_dir):
     try:
         if len(source_path) <= 200:
-            return excel.Workbooks.Open(
-                source_path,
-                UpdateLinks=0,
-                ReadOnly=True,
-                AddToMru=False,
-                IgnoreReadOnlyRecommended=True,
-                Notify=False,
-            ), None
+            return _open_workbook(excel, source_path), None
     except Exception:
         pass
 
@@ -218,14 +217,7 @@ def open_workbook_robust(excel, source_path, temp_dir):
     shutil.copy2(source_path, temp_path)
 
     try:
-        return excel.Workbooks.Open(
-            temp_path,
-            UpdateLinks=0,
-            ReadOnly=True,
-            AddToMru=False,
-            IgnoreReadOnlyRecommended=True,
-            Notify=False,
-        ), temp_path
+        return _open_workbook(excel, temp_path), temp_path
     except Exception as exc:
         if os.path.exists(temp_path):
             os.remove(temp_path)
@@ -233,36 +225,83 @@ def open_workbook_robust(excel, source_path, temp_dir):
 
 
 def _write_output_workbook(out_wb, success, errors):
-    ws_ok = out_wb.Worksheets(1)
-    ws_ok.Name = "INSERT POINT DATA"
-    ws_ok.Range("A1:E1").Value = [["No", "Model", "Part Number", "PCB Part Number", "Insert Point"]]
+    ws_ok = _excel_call(lambda: out_wb.Worksheets(1))
+    _excel_call(lambda: setattr(ws_ok, "Name", "INSERT POINT DATA"))
+    _set_range_value(ws_ok, "A1:E1", [["No", "Model", "Part Number", "PCB Part Number", "Insert Point"]])
 
     for index, data in enumerate(success, start=1):
-        ws_ok.Cells(index + 1, 1).Value = index
-        ws_ok.Cells(index + 1, 2).Value = data[0]
-        ws_ok.Cells(index + 1, 3).Value = data[1]
-        ws_ok.Cells(index + 1, 4).Value = data[2]
-        ws_ok.Cells(index + 1, 5).Value = data[3]
+        _set_cell_value(ws_ok, index + 1, 1, index)
+        _set_cell_value(ws_ok, index + 1, 2, data[0])
+        _set_cell_value(ws_ok, index + 1, 3, data[1])
+        _set_cell_value(ws_ok, index + 1, 4, data[2])
+        _set_cell_value(ws_ok, index + 1, 5, data[3])
 
-    ws_err = out_wb.Worksheets.Add(After=ws_ok)
-    ws_err.Name = "ERROR LOG"
-    ws_err.Range("A1:E1").Value = [["No", "Part Number", "PCB Part Number", "File Path", "Error Desc"]]
+    ws_err = _excel_call(lambda: out_wb.Worksheets.Add(After=ws_ok))
+    _excel_call(lambda: setattr(ws_err, "Name", "ERROR LOG"))
+    _set_range_value(ws_err, "A1:E1", [["No", "Part Number", "PCB Part Number", "File Path", "Error Desc"]])
 
     for index, data in enumerate(errors, start=1):
-        ws_err.Cells(index + 1, 1).Value = index
-        ws_err.Cells(index + 1, 2).Value = data[0]
-        ws_err.Cells(index + 1, 3).Value = data[1]
-        ws_err.Cells(index + 1, 4).Value = data[2]
-        ws_err.Cells(index + 1, 5).Value = data[3]
+        _set_cell_value(ws_err, index + 1, 1, index)
+        _set_cell_value(ws_err, index + 1, 2, data[0])
+        _set_cell_value(ws_err, index + 1, 3, data[1])
+        _set_cell_value(ws_err, index + 1, 4, data[2])
+        _set_cell_value(ws_err, index + 1, 5, data[3])
 
-    ws_ok.Columns("A:E").AutoFit()
-    ws_err.Columns("A:E").AutoFit()
-    ws_err.Columns("E:E").ColumnWidth = 70
+    _excel_call(lambda: ws_ok.Columns("A:E").AutoFit())
+    _excel_call(lambda: ws_err.Columns("A:E").AutoFit())
+    _excel_call(lambda: setattr(ws_err.Columns("E:E"), "ColumnWidth", 70))
+
+
+def _open_workbook(excel, path, **kwargs):
+    options = {
+        "UpdateLinks": 0,
+        "ReadOnly": True,
+        "AddToMru": False,
+        "IgnoreReadOnlyRecommended": True,
+        "Notify": False,
+    }
+    options.update(kwargs)
+    return _excel_call(lambda: excel.Workbooks.Open(path, **options))
+
+
+def _cell_value(worksheet, row, column):
+    return _excel_call(lambda: worksheet.Cells(row, column).Value)
+
+
+def _set_cell_value(worksheet, row, column, value):
+    _excel_call(lambda: setattr(worksheet.Cells(row, column), "Value", value))
+
+
+def _range_value(worksheet, address):
+    return _excel_call(lambda: worksheet.Range(address).Value)
+
+
+def _set_range_value(worksheet, address, value):
+    _excel_call(lambda: setattr(worksheet.Range(address), "Value", value))
+
+
+def _excel_call(fn, attempts=80, delay=0.25):
+    for attempt in range(attempts):
+        try:
+            return fn()
+        except Exception as exc:
+            if not _is_excel_busy_error(exc) or attempt == attempts - 1:
+                raise
+            time.sleep(delay)
+
+    return None
+
+
+def _is_excel_busy_error(exc):
+    hresult = getattr(exc, "hresult", None)
+    if hresult is None and getattr(exc, "args", None):
+        hresult = exc.args[0]
+    return hresult in COM_BUSY_HRESULTS
 
 
 def _close_workbook(workbook):
     try:
-        workbook.Close(SaveChanges=False)
+        _excel_call(lambda: workbook.Close(SaveChanges=False))
     except Exception:
         pass
 
@@ -295,7 +334,7 @@ def _restore_and_quit_excel(excel):
         _set_excel_option(excel, attr, value)
 
     try:
-        excel.Quit()
+        _excel_call(lambda: excel.Quit())
     except Exception:
         pass
 
