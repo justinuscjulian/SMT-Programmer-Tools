@@ -6,6 +6,7 @@ from ui.pages.bom_compare_page import BomComparePage
 from ui.pages.history_page import HistoryPage
 from ui.pages.machine_compare_page import MachineComparePage
 from ui.pages.other_tools_page import OtherToolsPage
+from ui.pages.plan_page import PlanPage
 from ui.sidebar import Sidebar
 from ui.top_bar import TopBar
 from utils.paths import resource_path
@@ -20,6 +21,7 @@ class MainWindow(QMainWindow):
         self.titles = {
             "compare": "BOM Comparison",
             "machine": "Machine Data Audit",
+            "plan": "PLAN",
             "history": "History & Logs",
             "other": "Other Tools",
         }
@@ -66,6 +68,7 @@ class MainWindow(QMainWindow):
         self.pages = {
             "compare": BomComparePage(self.thread_pool, self.theme_manager),
             "machine": MachineComparePage(self.thread_pool, self.theme_manager),
+            "plan": PlanPage(self.thread_pool, self.theme_manager),
             "history": HistoryPage(self.thread_pool, self.theme_manager),
             "other": OtherToolsPage(self.thread_pool, self.theme_manager),
         }

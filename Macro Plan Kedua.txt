@@ -1,0 +1,125 @@
+Sub AutoVLOOKUP_PLAN2()
+    Dim ws As Worksheet
+    Dim lookupCell As Range
+    Dim tableArray As Range
+    Dim formulaStr As String
+    Dim startRow As Long, endRow As Long
+    Dim colTarget As Long
+    Dim colIndexNum As Long
+    Dim i As Long
+
+    Dim lookupValue As Variant
+    Dim foundCell As Range
+    Dim srcValCell As Range
+    Dim srcGCell As Range
+    Dim srcS2Cell As Range
+
+    Dim s2TableCol As Long
+    Dim s2TargetCol As Long
+
+    ' Posisi kolom S-2
+    s2TableCol = 14  ' relatif terhadap table_array (kalau mulai dari kolom C)
+    s2TargetCol = 16 ' kolom P (S-2) di sheet aktif
+
+    Set ws = ActiveSheet
+
+    ' Kolom output fleksibel: sesuai cell aktif saat macro dijalankan
+    colTarget = ActiveCell.Column
+
+    ' col_index_num manual
+    On Error Resume Next
+    colIndexNum = Application.InputBox("Masukkan col_index_num untuk VLOOKUP:", Type:=1)
+    On Error GoTo 0
+    If colIndexNum <= 0 Then Exit Sub
+
+    ' Pilih Lookup_value cell manual (line pertama)
+    On Error Resume Next
+    Set lookupCell = Application.InputBox("Pilih cell Lookup_value awal line pertama:", Type:=8)
+    On Error GoTo 0
+    If lookupCell Is Nothing Then Exit Sub
+
+    Do While ws.Cells(lookupCell.Row, 1).Value <> "" ' Kolom A patokan untuk blok
+        ' Pilih table_array per blok
+        On Error Resume Next
+        Set tableArray = Application.InputBox("Pilih Table_array untuk blok mulai baris " & lookupCell.Row & ":", Type:=8)
+        On Error GoTo 0
+        If tableArray Is Nothing Then Exit Sub
+
+        startRow = lookupCell.Row
+
+        ' Cari baris akhir blok
+        endRow = startRow
+        Do While ws.Cells(endRow + 1, 1).Value <> "" ' kolom A patokan
+            endRow = endRow + 1
+        Loop
+
+        ' Buat formula VLOOKUP
+        formulaStr = "=VLOOKUP(" & ws.Cells(startRow, lookupCell.Column).Address(False, False) & "," & _
+                     tableArray.Address(True, True, xlA1, True) & "," & colIndexNum & ",0)"
+
+        ' Isi formula ke kolom target
+        ws.Cells(startRow, colTarget).Formula = formulaStr
+        ws.Range(ws.Cells(startRow, colTarget), ws.Cells(endRow, colTarget)).FillDown
+
+        ' Paste Values
+        ws.Range(ws.Cells(startRow, colTarget), ws.Cells(endRow, colTarget)).Value = _
+            ws.Range(ws.Cells(startRow, colTarget), ws.Cells(endRow, colTarget)).Value
+
+        ' ?? Copy warna & value tambahan
+        For i = startRow To endRow
+            lookupValue = ws.Cells(i, lookupCell.Column).Value
+            If Not IsEmpty(lookupValue) And Not IsError(lookupValue) Then
+                Set foundCell = tableArray.Columns(1).Find( _
+                                What:=lookupValue, _
+                                After:=tableArray.Columns(1).Cells(1), _
+                                LookIn:=xlValues, _
+                                LookAt:=xlWhole, _
+                                SearchOrder:=xlByRows, _
+                                SearchDirection:=xlNext, _
+                                MatchCase:=False, _
+                                SearchFormat:=False)
+
+                If Not foundCell Is Nothing Then
+                    ' 1?? Copy warna hasil VLOOKUP
+                    Set srcValCell = foundCell.Offset(0, colIndexNum - 1)
+                    With ws.Cells(i, colTarget).Interior
+                        If srcValCell.Interior.Pattern = xlNone Then
+                            .Pattern = xlNone
+                        Else
+                            .Pattern = xlSolid
+                            .Color = srcValCell.Interior.Color
+                        End If
+                    End With
+
+                    ' 2?? Copy warna kolom G (DMS P/N)
+                    Set srcGCell = foundCell.Worksheet.Cells(foundCell.Row, 7)
+                    With ws.Cells(i, 7).Interior
+                        If srcGCell.Interior.Pattern = xlNone Then
+                            .Pattern = xlNone
+                        Else
+                            .Pattern = xlSolid
+                            .Color = srcGCell.Interior.Color
+                        End If
+                    End With
+
+                    ' 3?? Copy value + warna kolom S-2 (P)
+                    Set srcS2Cell = foundCell.Offset(0, s2TableCol - 1)
+                    ws.Cells(i, s2TargetCol).Value = srcS2Cell.Value
+                    With ws.Cells(i, s2TargetCol).Interior
+                        If srcS2Cell.Interior.Pattern = xlNone Then
+                            .Pattern = xlNone
+                        Else
+                            .Pattern = xlSolid
+                            .Color = srcS2Cell.Interior.Color
+                        End If
+                    End With
+                End If
+            End If
+        Next i
+
+        ' Geser ke blok berikutnya (skip 3 baris kosong)
+        Set lookupCell = ws.Cells(endRow + 4, lookupCell.Column)
+    Loop
+
+    MsgBox "? Selesai isi VLOOKUP + copy warna ke hasil, kolom G & S-2 (P)."
+End Sub

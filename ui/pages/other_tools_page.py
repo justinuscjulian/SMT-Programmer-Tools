@@ -3,6 +3,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QStackedWidget, 
 
 from ui.icons import make_icon
 from ui.pages.all_in_one_page import AllInOneComparatorPage
+from ui.pages.insert_point_page import InsertPointPage
 from ui.pages.new_pcb_excel_page import NewPcbExcelPage
 from ui.pages.worksheet_page import WorksheetComparatorPage
 from widgets.card import Card
@@ -27,6 +28,7 @@ class OtherToolsPage(QWidget):
         self.stack.addWidget(self._build_worksheet_page())
         self.stack.addWidget(self._build_all_in_one_page())
         self.stack.addWidget(self._build_new_pcb_page())
+        self.stack.addWidget(self._build_insert_point_page())
         root.addWidget(self.stack, 1)
         self._refresh_icons()
 
@@ -69,6 +71,13 @@ class OtherToolsPage(QWidget):
             self.open_new_pcb,
         )
         menu_card.layout.addWidget(self.new_pcb_button)
+        self.insert_point_button = self._create_tool_button(
+            "Get Insert Point",
+            "Ambil data Insert Point dari folder PCB",
+            "insert_point",
+            self.open_insert_point,
+        )
+        menu_card.layout.addWidget(self.insert_point_button)
         menu_card.layout.addStretch(1)
         layout.addWidget(menu_card, 1)
 
@@ -134,6 +143,26 @@ class OtherToolsPage(QWidget):
         layout.addWidget(self.new_pcb_page, 1)
         return page
 
+    def _build_insert_point_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        top = QHBoxLayout()
+        self.back_insert_point_button = QPushButton("Back to Tools")
+        self.back_insert_point_button.clicked.connect(self.open_menu)
+        title = QLabel("Get Insert Point")
+        title.setObjectName("TitleLabel")
+        top.addWidget(self.back_insert_point_button)
+        top.addWidget(title)
+        top.addStretch(1)
+        layout.addLayout(top)
+
+        self.insert_point_page = InsertPointPage(self.thread_pool, self.theme_manager)
+        layout.addWidget(self.insert_point_page, 1)
+        return page
+
     def _create_tool_button(self, title, subtitle, icon_name, callback):
         button = QToolButton()
         button.setObjectName("ToolMenuButton")
@@ -159,6 +188,9 @@ class OtherToolsPage(QWidget):
     def open_new_pcb(self):
         self.stack.setCurrentIndex(3)
 
+    def open_insert_point(self):
+        self.stack.setCurrentIndex(4)
+
     def _refresh_icons(self):
         theme = self.theme_manager.theme
         for button in self.tool_buttons:
@@ -169,3 +201,5 @@ class OtherToolsPage(QWidget):
             self.back_all_in_one_button.setIcon(make_icon("arrow_left", theme["text"]))
         if hasattr(self, "back_new_pcb_button"):
             self.back_new_pcb_button.setIcon(make_icon("arrow_left", theme["text"]))
+        if hasattr(self, "back_insert_point_button"):
+            self.back_insert_point_button.setIcon(make_icon("arrow_left", theme["text"]))

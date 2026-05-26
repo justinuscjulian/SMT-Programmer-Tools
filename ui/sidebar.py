@@ -52,6 +52,7 @@ class Sidebar(QFrame):
 
         self._add_nav(root, "compare", "compare", "BOM Comparison")
         self._add_nav(root, "machine", "machine", "Machine Data Audit")
+        self._add_nav(root, "plan", "plan", "PLAN")
         self._add_nav(root, "other", "tools", "Other Tools")
         root.addStretch(1)
         self._add_nav(root, "history", "history", "History & Logs")

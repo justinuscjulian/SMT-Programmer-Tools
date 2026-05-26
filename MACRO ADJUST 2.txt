@@ -1,0 +1,56 @@
+Sub MACROPLAN2_Clean_IndexBased()
+    Dim ws As Worksheet
+    Set ws = ActiveSheet
+
+    Application.ScreenUpdating = False
+    Application.Calculation = xlCalculationManual
+
+    ' 1?? Sisipkan kolom baru di Y (25)
+    ws.Columns(25).Insert Shift:=xlToRight, CopyOrigin:=xlFormatFromLeftOrAbove
+
+    ' 2?? Unhide kolom T:X (20 - 24)
+    ws.Range(ws.Columns(20), ws.Columns(24)).EntireColumn.Hidden = False
+
+    ' 3?? Pindahkan kolom Y (25) ke posisi V (22)
+    ws.Columns(25).Cut
+    ws.Columns(22).Insert Shift:=xlToRight
+
+    ' 4?? Sembunyikan kolom U (21) dan W:Y (23 - 25)
+    ws.Columns(21).EntireColumn.Hidden = True
+    ws.Range(ws.Columns(23), ws.Columns(25)).EntireColumn.Hidden = True
+
+    ' 5?? Atur lebar kolom
+    ws.Columns(20).ColumnWidth = 0.92      ' T
+    ws.Columns(16).ColumnWidth = 17.14     ' P
+    ws.Columns(5).EntireColumn.Hidden = True ' E
+    ws.Columns(7).ColumnWidth = 10.71      ' G
+    ws.Columns(22).ColumnWidth = 105.57    ' V
+
+    ' 6?? Hilangkan warna isi dan header kolom V (no fill)
+    ws.Columns(22).Interior.Pattern = xlNone
+
+    ' 7?? Jalankan macro eksternal jika ada
+    On Error Resume Next
+    Application.Run "PERSONAL.XLSB!NoFillColor"
+    On Error GoTo 0
+
+    ' 8?? Format seluruh area terpakai
+    With ws.UsedRange.Font
+        .Name = "Calibri"
+        .Size = 10
+        .Strikethrough = False
+        .Superscript = False
+        .Subscript = False
+        .OutlineFont = False
+        .Shadow = False
+        .Underline = xlUnderlineStyleNone
+        .TintAndShade = 0
+        .ThemeFont = xlThemeFontMinor
+    End With
+
+    ' 9?? Fokus ke sel V4
+    ws.Range("V4").Select
+
+    Application.Calculation = xlCalculationAutomatic
+    Application.ScreenUpdating = True
+End Sub

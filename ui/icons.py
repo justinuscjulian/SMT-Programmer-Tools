@@ -52,6 +52,12 @@ def make_icon(name, color="#2563eb", size=24):
         painter.drawLine(QPointF(8, 8), QPointF(16, 8))
         painter.drawLine(QPointF(8, 12), QPointF(16, 12))
         painter.drawLine(QPointF(8, 16), QPointF(13, 16))
+    elif name == "plan":
+        painter.drawRoundedRect(QRectF(5, 3.5, 14, 17), 2.5, 2.5)
+        painter.drawLine(QPointF(8, 8), QPointF(16, 8))
+        painter.drawLine(QPointF(8, 12), QPointF(16, 12))
+        painter.drawLine(QPointF(8, 16), QPointF(12, 16))
+        painter.drawLine(QPointF(14, 16), QPointF(17.5, 19.5))
     elif name == "all_in_one":
         painter.drawRoundedRect(QRectF(4, 4, 7, 7), 2, 2)
         painter.drawRoundedRect(QRectF(13, 4, 7, 7), 2, 2)
@@ -60,6 +66,13 @@ def make_icon(name, color="#2563eb", size=24):
         painter.drawLine(QPointF(11, 7.5), QPointF(13, 7.5))
         painter.drawLine(QPointF(7.5, 11), QPointF(7.5, 13))
         painter.drawLine(QPointF(11, 16.5), QPointF(13, 16.5))
+    elif name == "insert_point":
+        painter.drawEllipse(QPointF(12, 12), 7, 7)
+        painter.drawEllipse(QPointF(12, 12), 2.4, 2.4)
+        painter.drawLine(QPointF(12, 3), QPointF(12, 7))
+        painter.drawLine(QPointF(12, 17), QPointF(12, 21))
+        painter.drawLine(QPointF(3, 12), QPointF(7, 12))
+        painter.drawLine(QPointF(17, 12), QPointF(21, 12))
     elif name == "arrow_left":
         painter.drawLine(QPointF(15.5, 6), QPointF(9.5, 12))
         painter.drawLine(QPointF(9.5, 12), QPointF(15.5, 18))
