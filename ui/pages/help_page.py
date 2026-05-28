@@ -1,0 +1,215 @@
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
+
+from widgets.card import Card
+
+
+HELP_SECTIONS = [
+    {
+        "title": "BOM Comparison",
+        "subtitle": "Compare BOM Excel reference dengan BOM source.",
+        "steps": [
+            "Pilih file reference TXT pada panel kiri.",
+            "Pilih BOM source .tsv/.xlsx/.xls pada panel kanan.",
+            "Klik Run Comparison untuk melihat ADD, CNG, dan DEL.",
+            "Gunakan Export Results kalau ada hasil NG yang perlu disimpan.",
+        ],
+        "notes": [
+            "Reference TXT dibaca sebagai pasangan Circuit dan Part Number.",
+            "BOM source dibaca dari kolom Child dan Designators.",
+        ],
+    },
+    {
+        "title": "Machine Data Audit",
+        "subtitle": "Compare data mesin dengan program TXT.",
+        "steps": [
+            "Pilih machine type: NPM, CM602, atau BM221.",
+            "Import file mesin sesuai tipe: .crb untuk NPM, .POS untuk BM221, atau file mesin lain untuk CM602.",
+            "Import Program File .txt.",
+            "Klik Run Machine Audit lalu cek panel Machine Data dan Program File.",
+            "Export Results bila perlu laporan Excel.",
+        ],
+        "notes": [
+            "ADD berarti data ada di mesin/source tapi tidak ada di program target.",
+            "CNG berarti Circuit sama, tapi detail part, koordinat, atau angle berbeda.",
+            "DEL berarti data ada di program target tapi tidak ada di mesin/source.",
+            "Untuk BM221, Sync to .POS dapat membuat file POS hasil sinkron part CNG non-TRAY.",
+        ],
+    },
+    {
+        "title": "PLAN",
+        "subtitle": "Generate PLAN baru dari PLAN sebelumnya dan PLAN baru.",
+        "steps": [
+            "Pilih tipe plan: 1ST PLAN, 2ND PLAN, atau 3RD PLAN.",
+            "Pilih PLAN sebelumnya.",
+            "Pilih PLAN baru.",
+            "Klik Generate PLAN dan tentukan lokasi output.",
+        ],
+        "notes": [
+            "Output disimpan sebagai workbook Excel.",
+            "Dialog selesai menampilkan jumlah data match dan not found.",
+        ],
+    },
+    {
+        "title": "Worksheet Comparator",
+        "subtitle": "Verifikasi Worksheet feeder dengan file NPM .crb.",
+        "steps": [
+            "Buka Other Tools lalu pilih Worksheet Comparator.",
+            "Pilih WORKSHEET Excel/CSV.",
+            "Pilih file NPM .crb.",
+            "Klik Compare Data.",
+            "Gunakan filter hasil untuk melihat NG ID/P/N, NG QTY, semua NG, atau MATCH.",
+        ],
+        "notes": [
+            "ID 1401 dan 1402 diabaikan saat compare.",
+            "Perbedaan qty untuk table 10 dan 11 ditandai aman karena aturan khusus mesin.",
+        ],
+    },
+    {
+        "title": "Worksheet vs BOM Comparator",
+        "subtitle": "Compare Worksheet feeder dengan BOM .tsv asalnya.",
+        "steps": [
+            "Buka Other Tools lalu pilih Worksheet vs BOM Comparator.",
+            "Pilih file Worksheet .xlsx.",
+            "Pilih BOM .tsv dengan part number yang sama.",
+            "Klik Run Comparison.",
+            "Export Results kalau ada ADD, CNG, atau DEL.",
+        ],
+        "notes": [
+            "Worksheet dibandingkan memakai total CNT per Part Number.",
+            "BOM dibandingkan memakai jumlah designator TOP SMT per Part Number.",
+            "Row placeholder PCB ID 1401/1402 pada Worksheet di-skip agar tidak menjadi false NG.",
+        ],
+    },
+    {
+        "title": "All In One Comparator",
+        "subtitle": "Compare NPM, BM, dan BOM dari satu layar.",
+        "steps": [
+            "Klik Auto-Import Semua File untuk memilih banyak file sekaligus, atau isi picker satu per satu.",
+            "Pastikan file source kiri dan target kanan sudah terpasang pasangannya.",
+            "Klik Start Compare.",
+            "Gunakan Filter Status untuk fokus ke NG only, beda data, ADD, REMOVE, atau semua data.",
+        ],
+        "notes": [
+            "NPM memakai pasangan .crb dan .txt.",
+            "BM memakai pasangan .pos dan .txt.",
+            "BOM memakai pasangan .tsv/.csv dan TXT BOM target.",
+        ],
+    },
+    {
+        "title": "NEW PCB Excel Creator",
+        "subtitle": "Generate workbook program SMT untuk new PCB.",
+        "steps": [
+            "Buka Other Tools lalu pilih NEW PCB Excel Creator.",
+            "Pilih CAD Data .txt, BOM .tsv, Excel Part Library, Excel Referensi, dan gambar Gerber PCB.",
+            "Isi semua field Excel Identity: model, program PN, PCB PN, revision, WO supply, creator, dan line.",
+            "Klik Generate Excel lalu pilih lokasi output.",
+            "Lanjutkan proses di Excel setelah dialog selesai muncul.",
+        ],
+        "notes": [
+            "Tombol Paste pada Gerber PCB Image bisa mengambil gambar langsung dari clipboard.",
+            "Output berisi sheet MEMO, CAD, DX, dan BOM.",
+        ],
+    },
+    {
+        "title": "Get Insert Point",
+        "subtitle": "Ambil data Insert Point dari folder PCB berdasarkan PLAN.",
+        "steps": [
+            "Buka Other Tools lalu pilih Get Insert Point.",
+            "Pilih Excel PLAN.",
+            "Pilih Folder Induk PCB.",
+            "Atur Start Row dan End Row sesuai range PLAN yang ingin diproses.",
+            "Klik Generate Insert Point dan tentukan lokasi output.",
+        ],
+        "notes": [
+            "Dialog selesai menampilkan jumlah berhasil dan error.",
+            "Periksa output Excel untuk melihat detail hasil tiap row.",
+        ],
+    },
+    {
+        "title": "History & Logs",
+        "subtitle": "Melihat dan export history compare.",
+        "steps": [
+            "Buka History & Logs dari sidebar.",
+            "Klik Refresh List untuk memuat ulang daftar history.",
+            "Pilih satu history lalu klik View Details / Export Selected untuk export hasil lama.",
+            "Klik Clear All History hanya kalau semua log sudah tidak diperlukan.",
+        ],
+        "notes": [
+            "History saat ini menyimpan hasil BOM Comparison dan Machine Data Audit.",
+        ],
+    },
+]
+
+
+class HelpPage(QWidget):
+    def __init__(self, theme_manager, parent=None):
+        super().__init__(parent)
+        self.theme_manager = theme_manager
+        self._build_ui()
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(12)
+
+        header = QHBoxLayout()
+        intro = QLabel("Panduan ringkas untuk setiap fitur aplikasi.")
+        intro.setObjectName("MutedLabel")
+        header.addWidget(intro)
+        header.addStretch(1)
+        root.addLayout(header)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+
+        content = QWidget()
+        grid = QGridLayout(content)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(12)
+
+        for index, section in enumerate(HELP_SECTIONS):
+            grid.addWidget(self._section_card(section), index // 2, index % 2)
+
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        scroll.setWidget(content)
+        root.addWidget(scroll, 1)
+
+    def _section_card(self, section):
+        card = Card()
+        title = QLabel(section["title"])
+        title.setObjectName("SectionTitle")
+        subtitle = QLabel(section["subtitle"])
+        subtitle.setObjectName("MutedLabel")
+        subtitle.setWordWrap(True)
+        card.layout.addWidget(title)
+        card.layout.addWidget(subtitle)
+
+        steps_title = self._mini_title("Langkah Pakai")
+        card.layout.addWidget(steps_title)
+        for number, step in enumerate(section["steps"], 1):
+            card.layout.addWidget(self._body_label(f"{number}. {step}"))
+
+        if section.get("notes"):
+            notes_title = self._mini_title("Catatan")
+            card.layout.addWidget(notes_title)
+            for note in section["notes"]:
+                card.layout.addWidget(self._body_label(f"- {note}"))
+
+        card.layout.addStretch(1)
+        return card
+
+    def _mini_title(self, text):
+        label = QLabel(text)
+        label.setObjectName("GuideMiniTitle")
+        return label
+
+    def _body_label(self, text):
+        label = QLabel(text)
+        label.setObjectName("GuideBody")
+        label.setWordWrap(True)
+        label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        return label

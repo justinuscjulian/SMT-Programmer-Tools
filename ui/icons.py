@@ -73,6 +73,16 @@ def make_icon(name, color="#2563eb", size=24):
         painter.drawLine(QPointF(12, 17), QPointF(12, 21))
         painter.drawLine(QPointF(3, 12), QPointF(7, 12))
         painter.drawLine(QPointF(17, 12), QPointF(21, 12))
+    elif name == "help":
+        painter.drawEllipse(QPointF(12, 12), 8, 8)
+        path = QPainterPath()
+        path.moveTo(9, 9.2)
+        path.cubicTo(9.4, 7.4, 11, 6.5, 12.7, 6.7)
+        path.cubicTo(14.5, 6.9, 15.6, 8.1, 15.4, 9.7)
+        path.cubicTo(15.2, 11.1, 13.9, 11.8, 12.9, 12.5)
+        path.cubicTo(12.2, 13, 12, 13.4, 12, 14.2)
+        painter.drawPath(path)
+        painter.drawPoint(QPointF(12, 17.2))
     elif name == "arrow_left":
         painter.drawLine(QPointF(15.5, 6), QPointF(9.5, 12))
         painter.drawLine(QPointF(9.5, 12), QPointF(15.5, 18))

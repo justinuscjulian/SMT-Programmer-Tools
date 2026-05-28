@@ -67,6 +67,16 @@ def build_qss(theme):
     QLabel#MutedLabel {{
         color: {theme["muted"]};
     }}
+    QLabel#GuideMiniTitle {{
+        color: {theme["accent"]};
+        font-size: 10pt;
+        font-weight: 800;
+        padding-top: 4px;
+    }}
+    QLabel#GuideBody {{
+        color: {theme["text"]};
+        line-height: 1.35;
+    }}
     QPushButton, QToolButton {{
         background: qlineargradient(
             x1:0, y1:0, x2:1, y2:1,
@@ -161,6 +171,28 @@ def build_qss(theme):
             stop:1 {theme["glass"]}
         );
         border: 1px solid {theme["border_soft"]};
+    }}
+    QPushButton#HelpButton {{
+        border-radius: 16px;
+        padding: 7px;
+        min-width: 34px;
+        max-width: 34px;
+        min-height: 34px;
+        max-height: 34px;
+        background: qlineargradient(
+            x1:0, y1:0, x2:1, y2:1,
+            stop:0 {theme["glass_strong"]},
+            stop:1 {theme["accent_soft"]}
+        );
+        border: 1px solid {theme["border_soft"]};
+    }}
+    QPushButton#HelpButton:hover {{
+        background: qlineargradient(
+            x1:0, y1:0, x2:1, y2:1,
+            stop:0 {theme["surface_hover"]},
+            stop:1 {theme["accent_soft"]}
+        );
+        border-color: {theme["accent"]};
     }}
     QLineEdit, QComboBox, QTextEdit, QPlainTextEdit {{
         background: qlineargradient(

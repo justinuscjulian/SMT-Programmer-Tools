@@ -3,6 +3,7 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QFrame, QGraphicsOpacityEffect, QHBoxLayout, QMainWindow, QStackedWidget, QVBoxLayout, QWidget
 
 from ui.pages.bom_compare_page import BomComparePage
+from ui.pages.help_page import HelpPage
 from ui.pages.history_page import HistoryPage
 from ui.pages.machine_compare_page import MachineComparePage
 from ui.pages.other_tools_page import OtherToolsPage
@@ -24,6 +25,7 @@ class MainWindow(QMainWindow):
             "plan": "PLAN",
             "history": "History & Logs",
             "other": "Other Tools",
+            "help": "Usage Guide",
         }
         self.pages = {}
         self._animations = []
@@ -56,6 +58,7 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(16)
 
         self.top_bar = TopBar(self.theme_manager)
+        self.top_bar.help_requested.connect(lambda: self.show_page("help"))
         main_layout.addWidget(self.top_bar)
 
         content = QWidget()
@@ -71,6 +74,7 @@ class MainWindow(QMainWindow):
             "plan": PlanPage(self.thread_pool, self.theme_manager),
             "history": HistoryPage(self.thread_pool, self.theme_manager),
             "other": OtherToolsPage(self.thread_pool, self.theme_manager),
+            "help": HelpPage(self.theme_manager),
         }
         for page in self.pages.values():
             self.stack.addWidget(page)

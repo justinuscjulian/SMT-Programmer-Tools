@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from PySide6.QtCore import QSize, QTimer
+from PySide6.QtCore import QSize, QTimer, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QPushButton
 
@@ -8,6 +8,8 @@ from ui.icons import make_icon
 
 
 class TopBar(QFrame):
+    help_requested = Signal()
+
     def __init__(self, theme_manager, parent=None):
         super().__init__(parent)
         self.setObjectName("TopBar")
@@ -31,6 +33,11 @@ class TopBar(QFrame):
         self.status_label.setObjectName("MutedLabel")
         self.clock_label = QLabel("")
         self.clock_label.setObjectName("MutedLabel")
+        self.help_btn = QPushButton("")
+        self.help_btn.setObjectName("HelpButton")
+        self.help_btn.setIconSize(QSize(18, 18))
+        self.help_btn.setToolTip("Panduan penggunaan")
+        self.help_btn.clicked.connect(self.help_requested.emit)
         self.theme_btn = QPushButton("")
         self.theme_btn.setObjectName("ThemeToggle")
         self.theme_btn.setIconSize(QSize(20, 20))
@@ -40,6 +47,7 @@ class TopBar(QFrame):
         layout.addWidget(self.status_label)
         layout.addStretch(1)
         layout.addWidget(self.clock_label)
+        layout.addWidget(self.help_btn)
         layout.addWidget(self.theme_btn)
 
         self.clock_timer = QTimer(self)
@@ -59,6 +67,7 @@ class TopBar(QFrame):
 
     def update_theme_button(self):
         theme = self.theme_manager.theme
+        self.help_btn.setIcon(make_icon("help", theme["accent"]))
         if self.theme_manager.mode == "dark":
             self.theme_btn.setText("Light")
             self.theme_btn.setIcon(make_icon("sun", theme["orange"]))

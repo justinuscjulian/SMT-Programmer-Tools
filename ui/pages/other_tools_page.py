@@ -5,6 +5,7 @@ from ui.icons import make_icon
 from ui.pages.all_in_one_page import AllInOneComparatorPage
 from ui.pages.insert_point_page import InsertPointPage
 from ui.pages.new_pcb_excel_page import NewPcbExcelPage
+from ui.pages.worksheet_bom_compare_page import WorksheetBomComparePage
 from ui.pages.worksheet_page import WorksheetComparatorPage
 from widgets.card import Card
 
@@ -26,6 +27,7 @@ class OtherToolsPage(QWidget):
         self.stack = QStackedWidget()
         self.stack.addWidget(self._build_menu_page())
         self.stack.addWidget(self._build_worksheet_page())
+        self.stack.addWidget(self._build_worksheet_bom_page())
         self.stack.addWidget(self._build_all_in_one_page())
         self.stack.addWidget(self._build_new_pcb_page())
         self.stack.addWidget(self._build_insert_point_page())
@@ -57,6 +59,13 @@ class OtherToolsPage(QWidget):
             self.open_worksheet,
         )
         menu_card.layout.addWidget(self.worksheet_button)
+        self.worksheet_bom_button = self._create_tool_button(
+            "Worksheet vs BOM Comparator",
+            "Compare Worksheet dengan BOM .tsv",
+            "compare",
+            self.open_worksheet_bom,
+        )
+        menu_card.layout.addWidget(self.worksheet_bom_button)
         self.all_in_one_button = self._create_tool_button(
             "All In One Comparator",
             "Compare NPM, BM, dan BOM dari satu layar",
@@ -101,6 +110,26 @@ class OtherToolsPage(QWidget):
 
         self.worksheet_page = WorksheetComparatorPage(self.thread_pool, self.theme_manager)
         layout.addWidget(self.worksheet_page, 1)
+        return page
+
+    def _build_worksheet_bom_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        top = QHBoxLayout()
+        self.back_worksheet_bom_button = QPushButton("Back to Tools")
+        self.back_worksheet_bom_button.clicked.connect(self.open_menu)
+        title = QLabel("Worksheet vs BOM Comparator")
+        title.setObjectName("TitleLabel")
+        top.addWidget(self.back_worksheet_bom_button)
+        top.addWidget(title)
+        top.addStretch(1)
+        layout.addLayout(top)
+
+        self.worksheet_bom_page = WorksheetBomComparePage(self.thread_pool, self.theme_manager)
+        layout.addWidget(self.worksheet_bom_page, 1)
         return page
 
     def _build_all_in_one_page(self):
@@ -183,13 +212,16 @@ class OtherToolsPage(QWidget):
         self.stack.setCurrentIndex(1)
 
     def open_all_in_one(self):
-        self.stack.setCurrentIndex(2)
-
-    def open_new_pcb(self):
         self.stack.setCurrentIndex(3)
 
-    def open_insert_point(self):
+    def open_new_pcb(self):
         self.stack.setCurrentIndex(4)
+
+    def open_insert_point(self):
+        self.stack.setCurrentIndex(5)
+
+    def open_worksheet_bom(self):
+        self.stack.setCurrentIndex(2)
 
     def _refresh_icons(self):
         theme = self.theme_manager.theme
@@ -197,6 +229,8 @@ class OtherToolsPage(QWidget):
             button.setIcon(make_icon(button._tool_icon_name, theme["accent"]))
         if hasattr(self, "back_button"):
             self.back_button.setIcon(make_icon("arrow_left", theme["text"]))
+        if hasattr(self, "back_worksheet_bom_button"):
+            self.back_worksheet_bom_button.setIcon(make_icon("arrow_left", theme["text"]))
         if hasattr(self, "back_all_in_one_button"):
             self.back_all_in_one_button.setIcon(make_icon("arrow_left", theme["text"]))
         if hasattr(self, "back_new_pcb_button"):
