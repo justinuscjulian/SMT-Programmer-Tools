@@ -36,7 +36,7 @@ class UsedPartComponentPage(WorkerPage):
         root.setSpacing(12)
 
         header = QHBoxLayout()
-        title = QLabel("Used Part Component")
+        title = QLabel("PCBA Model Used Part Component Collector")
         title.setObjectName("SectionTitle")
         self.status_label = QLabel("")
         self.status_label.setObjectName("MutedLabel")

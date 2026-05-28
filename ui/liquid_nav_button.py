@@ -59,6 +59,8 @@ class LiquidNavButton(QToolButton):
         style_painter = QStylePainter(self)
         option = QStyleOptionToolButton()
         self.initStyleOption(option)
+        if not self.property("collapsed"):
+            option.rect = option.rect.adjusted(10, 0, 0, 0)
         style_painter.drawControl(QStyle.CE_ToolButtonLabel, option)
 
     def _paint_liquid_background(self, painter):

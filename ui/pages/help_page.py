@@ -47,7 +47,8 @@ HELP_SECTIONS = [
         ],
         "notes": [
             "Output disimpan sebagai workbook Excel.",
-            "Dialog selesai menampilkan jumlah data match dan not found.",
+            "Dialog selesai menampilkan jumlah data match dan yang baru masuk.",
+            "Untuk 1ST PLAN, data match di kolom V dan data sejajar di kolom G ikut diberi warna.",
         ],
     },
     {
@@ -94,6 +95,22 @@ HELP_SECTIONS = [
             "Data diambil dari section PartsData atau PartsDataEx, lalu FeederData dan FixedFeeder.",
             "Feeder kecil dibuat sebagai posisi L/R.",
             "Feeder besar dibuat sebagai Large (2-Rel) atau Extra Large (3-Rel).",
+        ],
+    },
+    {
+        "title": "PCBA Model Used Part Component Collector",
+        "subtitle": "Collect dan generate Excel Used Part Component dari file Excel program.",
+        "steps": [
+            "Buka Other Tools lalu pilih Used Part Component.",
+            "Pilih Mode 1 untuk collect berdasarkan list PCB Part Number, atau Mode 2 untuk collect program berbeda dalam satu folder PCB.",
+            "Untuk Mode 1, pilih Folder Induk PCB lalu paste list PCB Part Number.",
+            "Untuk Mode 2, pilih folder yang berisi file Excel program.",
+            "Klik Generate Used Part Excel lalu pilih lokasi output.",
+        ],
+        "notes": [
+            "Data part name diambil dari sheet BOM kolom C.",
+            "Row dengan kolom F berisi #N/A, #NA, atau N/A tidak ikut diambil.",
+            "Sheet MASTER berisi part unik di kolom MASTER/P/N COMPONENT, lalu matrix penggunaan per part number di kolom berikutnya.",
         ],
     },
     {

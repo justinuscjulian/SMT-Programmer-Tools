@@ -164,6 +164,7 @@ def _process_first_plan(output_ws, previous_ws):
 
             target_cell.Value = matched["value"]
             _set_grey_fill(target_cell)
+            _set_grey_fill(output_ws.Cells(row, 7))
             matched_count += 1
 
     _clear_column_borders(output_ws, 22)
@@ -254,7 +255,7 @@ def _apply_first_plan_column_layout(ws):
         ws.Columns(23).EntireColumn.Hidden = True
         ws.Columns(24).EntireColumn.Hidden = True
         ws.Columns(20).ColumnWidth = 1.5
-        ws.Columns(22).ColumnWidth = 103
+        ws.Columns(22).ColumnWidth = 105
         ws.Columns(16).ColumnWidth = 17
         ws.Columns(7).ColumnWidth = 11
         ws.Columns(22).EntireColumn.Hidden = False

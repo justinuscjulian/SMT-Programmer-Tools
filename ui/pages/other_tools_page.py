@@ -239,7 +239,7 @@ class OtherToolsPage(QWidget):
         top = QHBoxLayout()
         self.back_used_part_component_button = QPushButton("Back to Tools")
         self.back_used_part_component_button.clicked.connect(self.open_menu)
-        title = QLabel("Used Part Component")
+        title = QLabel("PCBA Model Used Part Component Collector")
         title.setObjectName("TitleLabel")
         top.addWidget(self.back_used_part_component_button)
         top.addWidget(title)

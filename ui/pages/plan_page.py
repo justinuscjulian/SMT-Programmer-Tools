@@ -161,7 +161,7 @@ class PlanPage(WorkerPage):
         QMessageBox.information(
             self,
             "PLAN Selesai",
-            f"Sheet: {result.sheet_name}\nMatch: {result.matched_count}\nNot found: {result.not_found_count}\nFile: {result.output_path}",
+            f"Sheet: {result.sheet_name}\nMatch: {result.matched_count}\nYang baru masuk: {result.not_found_count}\nFile: {result.output_path}",
         )
 
     def _plan_type(self):
