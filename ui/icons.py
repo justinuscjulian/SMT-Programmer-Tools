@@ -73,6 +73,19 @@ def make_icon(name, color="#2563eb", size=24):
         painter.drawLine(QPointF(12, 17), QPointF(12, 21))
         painter.drawLine(QPointF(3, 12), QPointF(7, 12))
         painter.drawLine(QPointF(17, 12), QPointF(21, 12))
+    elif name == "feeder_mapping":
+        painter.drawRoundedRect(QRectF(4, 5, 16, 14), 2.5, 2.5)
+        for y in (8.5, 12, 15.5):
+            painter.drawLine(QPointF(7, y), QPointF(13.5, y))
+            painter.drawLine(QPointF(16.5, y), QPointF(17.5, y))
+        painter.drawLine(QPointF(6, 20.5), QPointF(18, 20.5))
+    elif name == "used_part_component":
+        painter.drawRoundedRect(QRectF(4, 4, 16, 16), 2.5, 2.5)
+        painter.drawLine(QPointF(4, 9), QPointF(20, 9))
+        painter.drawLine(QPointF(4, 14), QPointF(20, 14))
+        painter.drawLine(QPointF(9, 4), QPointF(9, 20))
+        painter.drawLine(QPointF(14, 4), QPointF(14, 20))
+        painter.drawEllipse(QPointF(16.8, 16.8), 1.3, 1.3)
     elif name == "help":
         painter.drawEllipse(QPointF(12, 12), 8, 8)
         path = QPainterPath()

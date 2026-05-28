@@ -3,8 +3,10 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QStackedWidget, 
 
 from ui.icons import make_icon
 from ui.pages.all_in_one_page import AllInOneComparatorPage
+from ui.pages.feeder_mapping_page import FeederMappingPage
 from ui.pages.insert_point_page import InsertPointPage
 from ui.pages.new_pcb_excel_page import NewPcbExcelPage
+from ui.pages.used_part_component_page import UsedPartComponentPage
 from ui.pages.worksheet_bom_compare_page import WorksheetBomComparePage
 from ui.pages.worksheet_page import WorksheetComparatorPage
 from widgets.card import Card
@@ -28,9 +30,11 @@ class OtherToolsPage(QWidget):
         self.stack.addWidget(self._build_menu_page())
         self.stack.addWidget(self._build_worksheet_page())
         self.stack.addWidget(self._build_worksheet_bom_page())
+        self.stack.addWidget(self._build_feeder_mapping_page())
         self.stack.addWidget(self._build_all_in_one_page())
         self.stack.addWidget(self._build_new_pcb_page())
         self.stack.addWidget(self._build_insert_point_page())
+        self.stack.addWidget(self._build_used_part_component_page())
         root.addWidget(self.stack, 1)
         self._refresh_icons()
 
@@ -66,6 +70,13 @@ class OtherToolsPage(QWidget):
             self.open_worksheet_bom,
         )
         menu_card.layout.addWidget(self.worksheet_bom_button)
+        self.feeder_mapping_button = self._create_tool_button(
+            "Feeder Mapping Generator",
+            "Convert export TXT mesin NPM ke Excel",
+            "feeder_mapping",
+            self.open_feeder_mapping,
+        )
+        menu_card.layout.addWidget(self.feeder_mapping_button)
         self.all_in_one_button = self._create_tool_button(
             "All In One Comparator",
             "Compare NPM, BM, dan BOM dari satu layar",
@@ -87,6 +98,13 @@ class OtherToolsPage(QWidget):
             self.open_insert_point,
         )
         menu_card.layout.addWidget(self.insert_point_button)
+        self.used_part_component_button = self._create_tool_button(
+            "Used Part Component",
+            "Collect part component dari Excel program",
+            "used_part_component",
+            self.open_used_part_component,
+        )
+        menu_card.layout.addWidget(self.used_part_component_button)
         menu_card.layout.addStretch(1)
         layout.addWidget(menu_card, 1)
 
@@ -130,6 +148,26 @@ class OtherToolsPage(QWidget):
 
         self.worksheet_bom_page = WorksheetBomComparePage(self.thread_pool, self.theme_manager)
         layout.addWidget(self.worksheet_bom_page, 1)
+        return page
+
+    def _build_feeder_mapping_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        top = QHBoxLayout()
+        self.back_feeder_mapping_button = QPushButton("Back to Tools")
+        self.back_feeder_mapping_button.clicked.connect(self.open_menu)
+        title = QLabel("Feeder Mapping Generator")
+        title.setObjectName("TitleLabel")
+        top.addWidget(self.back_feeder_mapping_button)
+        top.addWidget(title)
+        top.addStretch(1)
+        layout.addLayout(top)
+
+        self.feeder_mapping_page = FeederMappingPage(self.thread_pool, self.theme_manager)
+        layout.addWidget(self.feeder_mapping_page, 1)
         return page
 
     def _build_all_in_one_page(self):
@@ -192,6 +230,26 @@ class OtherToolsPage(QWidget):
         layout.addWidget(self.insert_point_page, 1)
         return page
 
+    def _build_used_part_component_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        top = QHBoxLayout()
+        self.back_used_part_component_button = QPushButton("Back to Tools")
+        self.back_used_part_component_button.clicked.connect(self.open_menu)
+        title = QLabel("Used Part Component")
+        title.setObjectName("TitleLabel")
+        top.addWidget(self.back_used_part_component_button)
+        top.addWidget(title)
+        top.addStretch(1)
+        layout.addLayout(top)
+
+        self.used_part_component_page = UsedPartComponentPage(self.thread_pool, self.theme_manager)
+        layout.addWidget(self.used_part_component_page, 1)
+        return page
+
     def _create_tool_button(self, title, subtitle, icon_name, callback):
         button = QToolButton()
         button.setObjectName("ToolMenuButton")
@@ -212,16 +270,22 @@ class OtherToolsPage(QWidget):
         self.stack.setCurrentIndex(1)
 
     def open_all_in_one(self):
-        self.stack.setCurrentIndex(3)
-
-    def open_new_pcb(self):
         self.stack.setCurrentIndex(4)
 
-    def open_insert_point(self):
+    def open_new_pcb(self):
         self.stack.setCurrentIndex(5)
+
+    def open_insert_point(self):
+        self.stack.setCurrentIndex(6)
+
+    def open_used_part_component(self):
+        self.stack.setCurrentIndex(7)
 
     def open_worksheet_bom(self):
         self.stack.setCurrentIndex(2)
+
+    def open_feeder_mapping(self):
+        self.stack.setCurrentIndex(3)
 
     def _refresh_icons(self):
         theme = self.theme_manager.theme
@@ -231,9 +295,13 @@ class OtherToolsPage(QWidget):
             self.back_button.setIcon(make_icon("arrow_left", theme["text"]))
         if hasattr(self, "back_worksheet_bom_button"):
             self.back_worksheet_bom_button.setIcon(make_icon("arrow_left", theme["text"]))
+        if hasattr(self, "back_feeder_mapping_button"):
+            self.back_feeder_mapping_button.setIcon(make_icon("arrow_left", theme["text"]))
         if hasattr(self, "back_all_in_one_button"):
             self.back_all_in_one_button.setIcon(make_icon("arrow_left", theme["text"]))
         if hasattr(self, "back_new_pcb_button"):
             self.back_new_pcb_button.setIcon(make_icon("arrow_left", theme["text"]))
         if hasattr(self, "back_insert_point_button"):
             self.back_insert_point_button.setIcon(make_icon("arrow_left", theme["text"]))
+        if hasattr(self, "back_used_part_component_button"):
+            self.back_used_part_component_button.setIcon(make_icon("arrow_left", theme["text"]))

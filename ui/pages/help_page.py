@@ -82,6 +82,21 @@ HELP_SECTIONS = [
         ],
     },
     {
+        "title": "Feeder Mapping Generator",
+        "subtitle": "Convert export TXT dari mesin NPM menjadi Excel feeder mapping.",
+        "steps": [
+            "Buka Other Tools lalu pilih Feeder Mapping Generator.",
+            "Pilih file export .txt dari mesin NPM.",
+            "Klik Preview Mapping untuk mengecek Table, Slot, Position, Location Code, dan Part Number.",
+            "Klik Generate Excel lalu pilih lokasi output.",
+        ],
+        "notes": [
+            "Data diambil dari section PartsData atau PartsDataEx, lalu FeederData dan FixedFeeder.",
+            "Feeder kecil dibuat sebagai posisi L/R.",
+            "Feeder besar dibuat sebagai Large (2-Rel) atau Extra Large (3-Rel).",
+        ],
+    },
+    {
         "title": "All In One Comparator",
         "subtitle": "Compare NPM, BM, dan BOM dari satu layar.",
         "steps": [
