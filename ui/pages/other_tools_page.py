@@ -1,8 +1,9 @@
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QStackedWidget, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QPushButton, QStackedWidget, QToolButton, QVBoxLayout, QWidget
 
 from ui.icons import make_icon
 from ui.pages.all_in_one_page import AllInOneComparatorPage
+from ui.pages.component_usage_finder_page import ComponentUsageFinderPage
 from ui.pages.feeder_mapping_page import FeederMappingPage
 from ui.pages.insert_point_page import InsertPointPage
 from ui.pages.new_pcb_excel_page import NewPcbExcelPage
@@ -35,6 +36,7 @@ class OtherToolsPage(QWidget):
         self.stack.addWidget(self._build_new_pcb_page())
         self.stack.addWidget(self._build_insert_point_page())
         self.stack.addWidget(self._build_used_part_component_page())
+        self.stack.addWidget(self._build_component_usage_page())
         root.addWidget(self.stack, 1)
         self._refresh_icons()
 
@@ -56,55 +58,77 @@ class OtherToolsPage(QWidget):
         card_title.setObjectName("SectionTitle")
         menu_card.layout.addWidget(card_title)
 
-        self.worksheet_button = self._create_tool_button(
-            "Worksheet Comparator",
-            "Worksheet vs CRB Verification",
-            "worksheet",
-            self.open_worksheet,
-        )
-        menu_card.layout.addWidget(self.worksheet_button)
-        self.worksheet_bom_button = self._create_tool_button(
-            "Worksheet vs BOM Comparator",
-            "Compare Worksheet dengan BOM .tsv",
-            "compare",
-            self.open_worksheet_bom,
-        )
-        menu_card.layout.addWidget(self.worksheet_bom_button)
-        self.feeder_mapping_button = self._create_tool_button(
-            "Feeder Mapping Generator",
-            "Convert export TXT mesin NPM ke Excel",
-            "feeder_mapping",
-            self.open_feeder_mapping,
-        )
-        menu_card.layout.addWidget(self.feeder_mapping_button)
-        self.all_in_one_button = self._create_tool_button(
-            "All In One Comparator",
-            "Compare NPM, BM, dan BOM dari satu layar",
-            "all_in_one",
-            self.open_all_in_one,
-        )
-        menu_card.layout.addWidget(self.all_in_one_button)
-        self.new_pcb_button = self._create_tool_button(
-            "NEW PCB Excel Creator",
-            "Generate Excel program SMT",
-            "worksheet",
-            self.open_new_pcb,
-        )
-        menu_card.layout.addWidget(self.new_pcb_button)
-        self.insert_point_button = self._create_tool_button(
-            "Get Insert Point",
-            "Ambil data Insert Point dari folder PCB",
-            "insert_point",
-            self.open_insert_point,
-        )
-        menu_card.layout.addWidget(self.insert_point_button)
-        self.used_part_component_button = self._create_tool_button(
-            "Used Part Component",
-            "Collect part component dari Excel program",
-            "used_part_component",
-            self.open_used_part_component,
-        )
-        menu_card.layout.addWidget(self.used_part_component_button)
+        tools_layout = QGridLayout()
+        tools_layout.setHorizontalSpacing(12)
+        tools_layout.setVerticalSpacing(12)
+        for column in range(4):
+            tools_layout.setColumnStretch(column, 1)
+
+        tools = [
+            (
+                "worksheet_button",
+                "Worksheet Comparator",
+                "Worksheet vs CRB Verification",
+                "worksheet",
+                self.open_worksheet,
+            ),
+            (
+                "worksheet_bom_button",
+                "Worksheet vs BOM Comparator",
+                "Compare Worksheet dengan BOM .tsv",
+                "compare",
+                self.open_worksheet_bom,
+            ),
+            (
+                "feeder_mapping_button",
+                "Feeder Mapping Generator",
+                "Convert export TXT mesin NPM ke Excel",
+                "feeder_mapping",
+                self.open_feeder_mapping,
+            ),
+            (
+                "all_in_one_button",
+                "All In One Comparator",
+                "Compare NPM, BM, dan BOM dari satu layar",
+                "all_in_one",
+                self.open_all_in_one,
+            ),
+            (
+                "new_pcb_button",
+                "NEW PCB Excel Creator",
+                "Generate Excel program SMT",
+                "worksheet",
+                self.open_new_pcb,
+            ),
+            (
+                "insert_point_button",
+                "Get Insert Point",
+                "Ambil data Insert Point dari folder PCB",
+                "insert_point",
+                self.open_insert_point,
+            ),
+            (
+                "used_part_component_button",
+                "Used Part Component",
+                "Collect part component dari Excel program",
+                "used_part_component",
+                self.open_used_part_component,
+            ),
+            (
+                "component_usage_button",
+                "Component Usage Finder",
+                "Cari component dipakai di model dan PCB apa saja",
+                "component_usage",
+                self.open_component_usage,
+            ),
+        ]
+        for index, (attr_name, title, subtitle, icon_name, callback) in enumerate(tools):
+            button = self._create_tool_button(title, subtitle, icon_name, callback)
+            setattr(self, attr_name, button)
+            row, column = divmod(index, 4)
+            tools_layout.addWidget(button, row, column)
+
+        menu_card.layout.addLayout(tools_layout)
         menu_card.layout.addStretch(1)
         layout.addWidget(menu_card, 1)
 
@@ -250,6 +274,26 @@ class OtherToolsPage(QWidget):
         layout.addWidget(self.used_part_component_page, 1)
         return page
 
+    def _build_component_usage_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        top = QHBoxLayout()
+        self.back_component_usage_button = QPushButton("Back to Tools")
+        self.back_component_usage_button.clicked.connect(self.open_menu)
+        title = QLabel("Component Usage Finder")
+        title.setObjectName("TitleLabel")
+        top.addWidget(self.back_component_usage_button)
+        top.addWidget(title)
+        top.addStretch(1)
+        layout.addLayout(top)
+
+        self.component_usage_page = ComponentUsageFinderPage(self.thread_pool, self.theme_manager)
+        layout.addWidget(self.component_usage_page, 1)
+        return page
+
     def _create_tool_button(self, title, subtitle, icon_name, callback):
         button = QToolButton()
         button.setObjectName("ToolMenuButton")
@@ -281,6 +325,9 @@ class OtherToolsPage(QWidget):
     def open_used_part_component(self):
         self.stack.setCurrentIndex(7)
 
+    def open_component_usage(self):
+        self.stack.setCurrentIndex(8)
+
     def open_worksheet_bom(self):
         self.stack.setCurrentIndex(2)
 
@@ -305,3 +352,5 @@ class OtherToolsPage(QWidget):
             self.back_insert_point_button.setIcon(make_icon("arrow_left", theme["text"]))
         if hasattr(self, "back_used_part_component_button"):
             self.back_used_part_component_button.setIcon(make_icon("arrow_left", theme["text"]))
+        if hasattr(self, "back_component_usage_button"):
+            self.back_component_usage_button.setIcon(make_icon("arrow_left", theme["text"]))

@@ -114,6 +114,26 @@ HELP_SECTIONS = [
         ],
     },
     {
+        "title": "Component Usage Finder",
+        "subtitle": "Cari component part number dipakai di model dan PCB part number apa saja.",
+        "steps": [
+            "Buka Other Tools lalu pilih Component Usage Finder.",
+            "Isi Component P/N yang ingin dicari.",
+            "Pilih Folder Induk PCB yang berisi subfolder program PCB.",
+            "Klik Search untuk scan file Excel program di semua subfolder.",
+            "Cek hasil utama pada Preview Results.",
+            "Gunakan Copy Results untuk copy hasil tab-separated ke Excel.",
+            "Gunakan Export Excel untuk menyimpan Preview Result dan Scan Log dalam dua sheet berbeda.",
+        ],
+        "notes": [
+            "Pencarian membaca sheet BOM saja dan dilakukan case-insensitive.",
+            "File temporary Excel yang diawali ~$ otomatis dilewati.",
+            "Model Part Number diparse dari nama file jika ada beberapa model dipisah tanda +.",
+            "PCB Part Number dan revision diparse dari nama file atau nama folder PCB.",
+            "Scan Log berisi detail source folder, source file, found row, dan file yang dilewati/error.",
+        ],
+    },
+    {
         "title": "All In One Comparator",
         "subtitle": "Compare NPM, BM, dan BOM dari satu layar.",
         "steps": [

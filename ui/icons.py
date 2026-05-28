@@ -86,6 +86,13 @@ def make_icon(name, color="#2563eb", size=24):
         painter.drawLine(QPointF(9, 4), QPointF(9, 20))
         painter.drawLine(QPointF(14, 4), QPointF(14, 20))
         painter.drawEllipse(QPointF(16.8, 16.8), 1.3, 1.3)
+    elif name == "component_usage":
+        painter.drawRoundedRect(QRectF(4, 4, 12, 14), 2.5, 2.5)
+        painter.drawLine(QPointF(7, 8), QPointF(13, 8))
+        painter.drawLine(QPointF(7, 11.5), QPointF(13, 11.5))
+        painter.drawLine(QPointF(7, 15), QPointF(11, 15))
+        painter.drawEllipse(QPointF(15.5, 15.5), 3.6, 3.6)
+        painter.drawLine(QPointF(18, 18), QPointF(21, 21))
     elif name == "help":
         painter.drawEllipse(QPointF(12, 12), 8, 8)
         path = QPainterPath()
