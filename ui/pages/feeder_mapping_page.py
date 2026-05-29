@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -77,9 +78,21 @@ class FeederMappingPage(WorkerPage):
         root.addWidget(self.progress)
 
         table_card = Card()
+        table_header = QHBoxLayout()
         table_title = QLabel("Detailed Feeder Setup")
         table_title.setObjectName("SectionTitle")
-        table_card.layout.addWidget(table_title)
+        search_label = QLabel("Search Preview:")
+        search_label.setObjectName("MutedLabel")
+        self.preview_search_input = QLineEdit()
+        self.preview_search_input.setPlaceholderText("Search table, slot, position, location code, atau part number")
+        self.preview_search_input.setClearButtonEnabled(True)
+        self.preview_search_input.textChanged.connect(self.apply_preview_search)
+        self.preview_search_input.setMinimumWidth(360)
+        table_header.addWidget(table_title)
+        table_header.addStretch(1)
+        table_header.addWidget(search_label)
+        table_header.addWidget(self.preview_search_input, 1)
+        table_card.layout.addLayout(table_header)
         self.mapping_model = RecordTableModel(
             [
                 ColumnSpec("table", "Table", Qt.AlignCenter, 90),
@@ -100,6 +113,7 @@ class FeederMappingPage(WorkerPage):
         self.register_busy_widgets(
             self.preview_btn,
             self.clear_btn,
+            self.preview_search_input,
             self.source_picker.button,
         )
 
@@ -113,6 +127,7 @@ class FeederMappingPage(WorkerPage):
         if file_path:
             self.source_picker.set_path(file_path)
             self.mapping_result = None
+            self.preview_search_input.clear()
             self.mapping_model.set_records([])
             self.generate_btn.setEnabled(True)
             self.summary_label.setText("0 ROWS")
@@ -132,10 +147,25 @@ class FeederMappingPage(WorkerPage):
 
     def _on_mapping_loaded(self, result):
         self.mapping_result = result
-        self.mapping_model.set_records(result.records)
-        self.summary_label.setText(f"{result.row_count} ROWS | {result.table_count} TABLES | {result.part_count} PARTS")
+        self.apply_preview_search()
         self.status_label.setText(f"Loaded: {result.source_file}")
         self.generate_btn.setEnabled(True)
+
+    def apply_preview_search(self, *_):
+        records = self.mapping_result.records if self.mapping_result is not None else []
+        query = self.preview_search_input.text().strip().lower()
+        if not query:
+            filtered_records = records
+        else:
+            tokens = [token for token in query.split() if token]
+            filtered_records = [
+                record
+                for record in records
+                if all(token in self._preview_search_text(record) for token in tokens)
+            ]
+
+        self.mapping_model.set_records(filtered_records)
+        self._update_summary(len(filtered_records), len(records))
 
     def generate_excel(self):
         source_path = self.source_picker.path()
@@ -182,8 +212,25 @@ class FeederMappingPage(WorkerPage):
         self.mapping_result = None
         self.source_path = ""
         self.source_picker.clear()
+        self.preview_search_input.clear()
         self.mapping_model.set_records([])
         self.generate_btn.setEnabled(False)
         self.summary_label.setText("0 ROWS")
         self.status_label.setText("")
         self.status_label.setToolTip("")
+
+    def _preview_search_text(self, record):
+        return " ".join(
+            str(record.get(key, ""))
+            for key in ("table", "slot", "position", "location_code", "part_number")
+        ).lower()
+
+    def _update_summary(self, visible_count, total_count):
+        if self.mapping_result is None:
+            self.summary_label.setText("0 ROWS")
+            return
+
+        summary = f"{total_count} ROWS | {self.mapping_result.table_count} TABLES | {self.mapping_result.part_count} PARTS"
+        if visible_count != total_count:
+            summary = f"{visible_count}/{summary}"
+        self.summary_label.setText(summary)
