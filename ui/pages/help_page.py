@@ -134,6 +134,23 @@ HELP_SECTIONS = [
         ],
     },
     {
+        "title": "Common Feeder Reuse",
+        "subtitle": "Cek candidate substitute component aman atau conflict untuk sharing fixed feeder.",
+        "steps": [
+            "Buka Other Tools lalu pilih Common Feeder Reuse.",
+            "Pilih Folder Induk PCB yang berisi semua Excel program/BOM model family yang ingin dicek.",
+            "Pilih Fixed Feeder Source dari export NPM .txt atau Excel Feeder Mapping.",
+            "Isi Candidate Component P/N kalau hanya ingin cek part tertentu, atau kosongkan untuk scan semua component non-feeder.",
+            "Klik Analyze Reuse lalu gunakan filter SAFE, CONFLICT, atau CHECK.",
+            "Export Excel untuk menyimpan Compatibility, Do Not Pair List, Component Usage, dan Usage Matrix.",
+        ],
+        "notes": [
+            "SAFE berarti candidate dan main feeder tidak pernah muncul bareng di PCB/model yang discan.",
+            "CONFLICT berarti candidate dan main feeder muncul bareng minimal di satu PCB/model, jadi tidak aman ditaruh satu feeder.",
+            "CHECK berarti salah satu P/N tidak ditemukan di folder scan, jadi perlu konfirmasi manual.",
+        ],
+    },
+    {
         "title": "All In One Comparator",
         "subtitle": "Compare NPM, BM, dan BOM dari satu layar.",
         "steps": [

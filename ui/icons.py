@@ -79,6 +79,15 @@ def make_icon(name, color="#2563eb", size=24):
             painter.drawLine(QPointF(7, y), QPointF(13.5, y))
             painter.drawLine(QPointF(16.5, y), QPointF(17.5, y))
         painter.drawLine(QPointF(6, 20.5), QPointF(18, 20.5))
+    elif name == "feeder_reuse":
+        painter.drawRoundedRect(QRectF(4, 5, 7, 14), 2.2, 2.2)
+        painter.drawRoundedRect(QRectF(13, 5, 7, 14), 2.2, 2.2)
+        painter.drawLine(QPointF(7.5, 9), QPointF(16.5, 9))
+        painter.drawLine(QPointF(16.5, 15), QPointF(7.5, 15))
+        painter.drawLine(QPointF(14.8, 7.4), QPointF(16.8, 9))
+        painter.drawLine(QPointF(14.8, 10.6), QPointF(16.8, 9))
+        painter.drawLine(QPointF(9.2, 13.4), QPointF(7.2, 15))
+        painter.drawLine(QPointF(9.2, 16.6), QPointF(7.2, 15))
     elif name == "used_part_component":
         painter.drawRoundedRect(QRectF(4, 4, 16, 16), 2.5, 2.5)
         painter.drawLine(QPointF(4, 9), QPointF(20, 9))

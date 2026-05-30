@@ -44,14 +44,30 @@ class RecordTableModel(QAbstractTableModel):
             return int(column.alignment | Qt.AlignVCenter)
         if role == Qt.BackgroundRole:
             status = self._status(row)
-            key = {"ADD": "add_bg", "CNG": "cng_bg", "DEL": "del_bg", "MATCH": "match_bg"}.get(status)
+            key = {
+                "ADD": "add_bg",
+                "CNG": "cng_bg",
+                "DEL": "del_bg",
+                "MATCH": "match_bg",
+                "SAFE": "match_bg",
+                "CONFLICT": "del_bg",
+                "CHECK": "cng_bg",
+            }.get(status)
             return QColor(self.theme.get(key)) if key and self.theme.get(key) else None
         if role == Qt.ForegroundRole:
             diff_keys = row.get("_diff_keys", [])
             if column.key in diff_keys and self.theme.get("red"):
                 return QColor(self.theme["red"])
             status = self._status(row)
-            key = {"ADD": "add_fg", "CNG": "cng_fg", "DEL": "del_fg", "MATCH": "match_fg"}.get(status)
+            key = {
+                "ADD": "add_fg",
+                "CNG": "cng_fg",
+                "DEL": "del_fg",
+                "MATCH": "match_fg",
+                "SAFE": "match_fg",
+                "CONFLICT": "del_fg",
+                "CHECK": "cng_fg",
+            }.get(status)
             return QColor(self.theme.get(key)) if key and self.theme.get(key) else None
         if role == Qt.UserRole:
             return value
