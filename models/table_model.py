@@ -52,6 +52,8 @@ class RecordTableModel(QAbstractTableModel):
                 "SAFE": "match_bg",
                 "CONFLICT": "del_bg",
                 "CHECK": "cng_bg",
+                "GROUPED": "match_bg",
+                "SINGLE": "cng_bg",
             }.get(status)
             return QColor(self.theme.get(key)) if key and self.theme.get(key) else None
         if role == Qt.ForegroundRole:
@@ -67,6 +69,8 @@ class RecordTableModel(QAbstractTableModel):
                 "SAFE": "match_fg",
                 "CONFLICT": "del_fg",
                 "CHECK": "cng_fg",
+                "GROUPED": "match_fg",
+                "SINGLE": "cng_fg",
             }.get(status)
             return QColor(self.theme.get(key)) if key and self.theme.get(key) else None
         if role == Qt.UserRole:

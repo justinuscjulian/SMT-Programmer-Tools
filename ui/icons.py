@@ -88,6 +88,14 @@ def make_icon(name, color="#2563eb", size=24):
         painter.drawLine(QPointF(14.8, 10.6), QPointF(16.8, 9))
         painter.drawLine(QPointF(9.2, 13.4), QPointF(7.2, 15))
         painter.drawLine(QPointF(9.2, 16.6), QPointF(7.2, 15))
+    elif name == "model_group":
+        painter.drawRoundedRect(QRectF(4, 5, 6, 6), 2, 2)
+        painter.drawRoundedRect(QRectF(14, 5, 6, 6), 2, 2)
+        painter.drawRoundedRect(QRectF(9, 14, 6, 6), 2, 2)
+        painter.drawLine(QPointF(10, 8), QPointF(14, 8))
+        painter.drawLine(QPointF(8.5, 11), QPointF(10.5, 14))
+        painter.drawLine(QPointF(15.5, 11), QPointF(13.5, 14))
+        painter.drawEllipse(QPointF(12, 12), 1.4, 1.4)
     elif name == "used_part_component":
         painter.drawRoundedRect(QRectF(4, 4, 16, 16), 2.5, 2.5)
         painter.drawLine(QPointF(4, 9), QPointF(20, 9))

@@ -151,6 +151,23 @@ HELP_SECTIONS = [
         ],
     },
     {
+        "title": "Model Fix Feeder Groups",
+        "subtitle": "Kelompokkan PCB/model berdasarkan kemiripan component usage di sheet BOM.",
+        "steps": [
+            "Buka Other Tools lalu pilih Model Fix Feeder Groups.",
+            "Pilih Folder Induk PCB yang berisi semua Excel program/BOM model family.",
+            "Atur Min Similarity dan Min Shared Parts sesuai seberapa ketat grouping yang diinginkan.",
+            "Klik Analyze Groups untuk melihat rekomendasi group fix feeder.",
+            "Gunakan filter GROUPED untuk melihat PCB/model yang cocok digabung, atau SHOW ALL untuk melihat single model.",
+            "Export Excel untuk menyimpan Recommended Groups, Group Components, Pair Similarity, Model Components, dan Scan Log.",
+        ],
+        "notes": [
+            "Similarity dihitung dari jumlah component yang sama dibanding model dengan jumlah component lebih kecil.",
+            "Recommended Fixed Feeder Parts adalah component yang muncul di semua member group.",
+            "Group Components menampilkan COMMON dan PARTIAL supaya pilihan fixed feeder bisa dipertajam manual.",
+        ],
+    },
+    {
         "title": "All In One Comparator",
         "subtitle": "Compare NPM, BM, dan BOM dari satu layar.",
         "steps": [

@@ -7,6 +7,7 @@ from ui.pages.component_usage_finder_page import ComponentUsageFinderPage
 from ui.pages.common_feeder_reuse_page import CommonFeederReusePage
 from ui.pages.feeder_mapping_page import FeederMappingPage
 from ui.pages.insert_point_page import InsertPointPage
+from ui.pages.model_feeder_group_page import ModelFeederGroupPage
 from ui.pages.new_pcb_excel_page import NewPcbExcelPage
 from ui.pages.used_part_component_page import UsedPartComponentPage
 from ui.pages.worksheet_bom_compare_page import WorksheetBomComparePage
@@ -39,6 +40,7 @@ class OtherToolsPage(QWidget):
         self.stack.addWidget(self._build_used_part_component_page())
         self.stack.addWidget(self._build_component_usage_page())
         self.stack.addWidget(self._build_common_feeder_reuse_page())
+        self.stack.addWidget(self._build_model_feeder_group_page())
         root.addWidget(self.stack, 1)
         self._refresh_icons()
 
@@ -129,6 +131,13 @@ class OtherToolsPage(QWidget):
                 "Cek substitute component aman atau conflict",
                 "feeder_reuse",
                 self.open_common_feeder_reuse,
+            ),
+            (
+                "model_feeder_group_button",
+                "Model Fix Feeder Groups",
+                "Kelompokkan PCB yang component usage-nya mirip",
+                "model_group",
+                self.open_model_feeder_group,
             ),
         ]
         for index, (attr_name, title, subtitle, icon_name, callback) in enumerate(tools):
@@ -323,6 +332,26 @@ class OtherToolsPage(QWidget):
         layout.addWidget(self.common_feeder_reuse_page, 1)
         return page
 
+    def _build_model_feeder_group_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        top = QHBoxLayout()
+        self.back_model_feeder_group_button = QPushButton("Back to Tools")
+        self.back_model_feeder_group_button.clicked.connect(self.open_menu)
+        title = QLabel("Model Fix Feeder Group Analyzer")
+        title.setObjectName("TitleLabel")
+        top.addWidget(self.back_model_feeder_group_button)
+        top.addWidget(title)
+        top.addStretch(1)
+        layout.addLayout(top)
+
+        self.model_feeder_group_page = ModelFeederGroupPage(self.thread_pool, self.theme_manager)
+        layout.addWidget(self.model_feeder_group_page, 1)
+        return page
+
     def _create_tool_button(self, title, subtitle, icon_name, callback):
         button = QToolButton()
         button.setObjectName("ToolMenuButton")
@@ -360,6 +389,9 @@ class OtherToolsPage(QWidget):
     def open_common_feeder_reuse(self):
         self.stack.setCurrentIndex(9)
 
+    def open_model_feeder_group(self):
+        self.stack.setCurrentIndex(10)
+
     def open_worksheet_bom(self):
         self.stack.setCurrentIndex(2)
 
@@ -388,3 +420,5 @@ class OtherToolsPage(QWidget):
             self.back_component_usage_button.setIcon(make_icon("arrow_left", theme["text"]))
         if hasattr(self, "back_common_feeder_reuse_button"):
             self.back_common_feeder_reuse_button.setIcon(make_icon("arrow_left", theme["text"]))
+        if hasattr(self, "back_model_feeder_group_button"):
+            self.back_model_feeder_group_button.setIcon(make_icon("arrow_left", theme["text"]))
