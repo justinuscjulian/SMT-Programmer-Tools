@@ -7,16 +7,18 @@ from widgets.card import Card
 HELP_SECTIONS = [
     {
         "title": "BOM Comparison",
-        "subtitle": "Compare BOM Excel reference dengan BOM source.",
+        "subtitle": "Compare BOM Excel reference dengan BOM source atau sesama BOM Excel TXT.",
         "steps": [
+            "Pilih mode TXT vs BOM File atau TXT vs TXT.",
             "Pilih file reference TXT pada panel kiri.",
-            "Pilih BOM source .tsv/.xlsx/.xls pada panel kanan.",
+            "Pilih BOM source .tsv/.xlsx/.xls atau source TXT pada panel kanan sesuai mode.",
             "Klik Run Comparison untuk melihat ADD, CNG, dan DEL.",
             "Gunakan Export Results kalau ada hasil NG yang perlu disimpan.",
         ],
         "notes": [
             "Reference TXT dibaca sebagai pasangan Circuit dan Part Number.",
-            "BOM source dibaca dari kolom Child dan Designators.",
+            "Mode TXT vs BOM File membaca source dari kolom Child dan Designators.",
+            "Mode TXT vs TXT membaca kedua file sebagai pasangan Circuit dan Part Number.",
         ],
     },
     {

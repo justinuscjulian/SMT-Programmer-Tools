@@ -245,7 +245,7 @@ def _extract_root_parent_part_number(df, col_parent, col_level):
     return "Unknown"
 
 
-def compare_bom(reference_df, raw_df):
+def compare_bom(reference_df, raw_df, reference_label="Reference", source_label="Source"):
     txt_dict = {}
     tsv_dict = {}
     side_dict = {}
@@ -259,7 +259,7 @@ def compare_bom(reference_df, raw_df):
         circuit = row["Circuit"]
         if circuit:
             tsv_dict.setdefault(circuit, set()).add(row["PartNo"])
-            side_dict[circuit] = row["Side"]
+            side_dict[circuit] = row.get("Side", "")
 
     all_circuits = sorted(set(txt_dict.keys()) | set(tsv_dict.keys()), key=natural_sort_key)
     diffs = []
@@ -280,10 +280,10 @@ def compare_bom(reference_df, raw_df):
             desc = "Part number mismatch on identical RefDes identifier."
         elif not txt_parts:
             diff_type = "ADD"
-            desc = "Component found in Raw file but missing from Reference."
+            desc = f"Component found in {source_label} but missing from {reference_label}."
         else:
             diff_type = "DEL"
-            desc = "RefDes present in Master Reference but deleted in latest Raw import."
+            desc = f"RefDes present in {reference_label} but missing from {source_label}."
 
         diffs.append((circuit, side_val, txt_str, tsv_str, diff_type, desc))
 
@@ -292,8 +292,8 @@ def compare_bom(reference_df, raw_df):
     return diffs
 
 
-def export_bom_results(diff_results, file_path):
+def export_bom_results(diff_results, file_path, reference_header="Part (Reference)", source_header="Part (Source)"):
     pd.DataFrame(
         diff_results,
-        columns=["Circuit No", "Side", "Part (Reference)", "Part (Source)", "Type", "Description"],
+        columns=["Circuit No", "Side", reference_header, source_header, "Type", "Description"],
     ).to_excel(file_path, index=False)

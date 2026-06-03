@@ -67,7 +67,8 @@ def export_history_entry(entry, file_path):
     if entry.get("txt_file", "").startswith("Machine:"):
         columns = ["Circuit No", "Field", "Machine Value", "Program Value", "Type", "Description"]
     elif len(first) == 6:
-        columns = ["Circuit No", "Side", "Part (Reference)", "Part (Source)", "Type", "Description"]
+        source_header = "Part (Source .txt)" if entry.get("mode") == "TXT vs TXT" else "Part (Source)"
+        columns = ["Circuit No", "Side", "Part (Reference .txt)", source_header, "Type", "Description"]
     else:
         columns = ["Circuit No", "Part (Reference)", "Part (Source)", "Type", "Description"]
 
