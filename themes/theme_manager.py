@@ -378,6 +378,14 @@ def build_qss(theme):
         );
         color: {theme["cng_fg"]};
     }}
+    QLabel#StatusBadge[status="MOVE"] {{
+        background: qlineargradient(
+            x1:0, y1:0, x2:1, y2:1,
+            stop:0 {theme["glass_strong"]},
+            stop:1 {theme["cng_bg"]}
+        );
+        color: {theme["cng_fg"]};
+    }}
     QLabel#StatusBadge[status="DEL"] {{
         background: qlineargradient(
             x1:0, y1:0, x2:1, y2:1,

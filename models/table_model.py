@@ -47,6 +47,7 @@ class RecordTableModel(QAbstractTableModel):
             key = {
                 "ADD": "add_bg",
                 "CNG": "cng_bg",
+                "MOVE": "cng_bg",
                 "DEL": "del_bg",
                 "MATCH": "match_bg",
                 "SAFE": "match_bg",
@@ -64,6 +65,7 @@ class RecordTableModel(QAbstractTableModel):
             key = {
                 "ADD": "add_fg",
                 "CNG": "cng_fg",
+                "MOVE": "cng_fg",
                 "DEL": "del_fg",
                 "MATCH": "match_fg",
                 "SAFE": "match_fg",

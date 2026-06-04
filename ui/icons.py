@@ -79,6 +79,15 @@ def make_icon(name, color="#2563eb", size=24):
             painter.drawLine(QPointF(7, y), QPointF(13.5, y))
             painter.drawLine(QPointF(16.5, y), QPointF(17.5, y))
         painter.drawLine(QPointF(6, 20.5), QPointF(18, 20.5))
+    elif name == "feeder_compare":
+        painter.drawRoundedRect(QRectF(4, 5, 6, 14), 2.2, 2.2)
+        painter.drawRoundedRect(QRectF(14, 5, 6, 14), 2.2, 2.2)
+        painter.drawLine(QPointF(7, 9), QPointF(17, 9))
+        painter.drawLine(QPointF(17, 15), QPointF(7, 15))
+        painter.drawLine(QPointF(15.3, 7.3), QPointF(17.2, 9))
+        painter.drawLine(QPointF(15.3, 10.7), QPointF(17.2, 9))
+        painter.drawLine(QPointF(8.7, 13.3), QPointF(6.8, 15))
+        painter.drawLine(QPointF(8.7, 16.7), QPointF(6.8, 15))
     elif name == "feeder_reuse":
         painter.drawRoundedRect(QRectF(4, 5, 7, 14), 2.2, 2.2)
         painter.drawRoundedRect(QRectF(13, 5, 7, 14), 2.2, 2.2)

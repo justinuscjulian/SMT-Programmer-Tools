@@ -100,6 +100,24 @@ HELP_SECTIONS = [
         ],
     },
     {
+        "title": "NPM Feeder Compare",
+        "subtitle": "Compare setup feeder antara dua export TXT mesin NPM.",
+        "steps": [
+            "Buka Other Tools lalu pilih NPM Feeder Compare.",
+            "Pilih Program A / Reference dari export TXT NPM lama.",
+            "Pilih Program B / Target dari export TXT NPM baru.",
+            "Klik Compare Feeders untuk melihat ADD, MOVE, CNG, dan DEL.",
+            "Gunakan filter status atau search untuk fokus ke location code dan part tertentu.",
+            "Export Excel kalau hasil compare perlu disimpan.",
+        ],
+        "notes": [
+            "Data feeder dibaca dengan parser yang sama seperti Feeder Mapping Generator.",
+            "MOVE berarti Part Number yang sama pindah location code.",
+            "CNG berarti location code sama, tapi Part Number berubah.",
+            "ADD berarti feeder hanya ada di Program B, DEL berarti feeder hanya ada di Program A.",
+        ],
+    },
+    {
         "title": "PCBA Model Used Part Component Collector",
         "subtitle": "Collect dan generate Excel Used Part Component dari file Excel program.",
         "steps": [
