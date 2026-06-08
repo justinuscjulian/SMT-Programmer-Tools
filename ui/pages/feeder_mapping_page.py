@@ -2,6 +2,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -9,6 +10,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QRadioButton,
     QTableView,
     QVBoxLayout,
 )
@@ -26,6 +28,7 @@ class FeederMappingPage(WorkerPage):
         super().__init__(thread_pool, theme_manager, parent)
         self.mapping_result = None
         self.source_path = ""
+        self.multi_source_paths = []
         self._build_ui()
         self.theme_manager.changed.connect(self.apply_theme_to_models)
 
@@ -47,11 +50,29 @@ class FeederMappingPage(WorkerPage):
         header.addWidget(self.status_label)
         root.addLayout(header)
 
+        mode_card = Card()
+        mode_title = QLabel("Generator Mode")
+        mode_title.setObjectName("SectionTitle")
+        mode_card.layout.addWidget(mode_title)
+        mode_row = QHBoxLayout()
+        self.single_mode_radio = QRadioButton("Single Feeder File")
+        self.multiple_mode_radio = QRadioButton("Multiple Feeder Files")
+        self.single_mode_radio.setChecked(True)
+        self.mode_group = QButtonGroup(self)
+        self.mode_group.addButton(self.single_mode_radio)
+        self.mode_group.addButton(self.multiple_mode_radio)
+        self.single_mode_radio.toggled.connect(self._sync_mode_ui)
+        mode_row.addWidget(self.single_mode_radio)
+        mode_row.addWidget(self.multiple_mode_radio)
+        mode_row.addStretch(1)
+        mode_card.layout.addLayout(mode_row)
+        root.addWidget(mode_card)
+
         source_card = Card()
-        source_title = QLabel("Source File")
+        source_title = QLabel("Source File(s)")
         source_title.setObjectName("SectionTitle")
         source_card.layout.addWidget(source_title)
-        self.source_picker = FilePicker("NPM Machine Export (.txt):")
+        self.source_picker = FilePicker("NPM Machine Export (.txt/.crb):")
         self.source_picker.browse_requested.connect(self.browse_source)
         source_card.layout.addWidget(self.source_picker)
         root.addWidget(source_card)
@@ -112,28 +133,66 @@ class FeederMappingPage(WorkerPage):
 
         self.register_busy_widgets(
             self.preview_btn,
+            self.generate_btn,
             self.clear_btn,
             self.preview_search_input,
             self.source_picker.button,
+            self.single_mode_radio,
+            self.multiple_mode_radio,
         )
 
+        self._sync_mode_ui()
+
+    def set_busy(self, busy, text=None):
+        super().set_busy(busy, text)
+        if not busy:
+            self._update_mode_actions()
+
     def browse_source(self):
+        if self._is_multiple_mode():
+            self.browse_multiple_sources()
+            return
+
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Select NPM Machine Export",
             "",
-            "NPM Export (*.txt);;Text Files (*.txt);;All Files (*)",
+            "NPM Export (*.txt *.TXT *.crb *.CRB);;Text/CRB Files (*.txt *.TXT *.crb *.CRB);;All Files (*)",
         )
         if file_path:
             self.source_picker.set_path(file_path)
+            self.source_path = file_path
+            self.multi_source_paths = []
             self.mapping_result = None
             self.preview_search_input.clear()
             self.mapping_model.set_records([])
-            self.generate_btn.setEnabled(True)
             self.summary_label.setText("0 ROWS")
             self.status_label.setText("Source selected")
+            self._update_mode_actions()
+
+    def browse_multiple_sources(self):
+        file_paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select NPM Machine Exports",
+            "",
+            "NPM Export (*.txt *.TXT *.crb *.CRB);;Text/CRB Files (*.txt *.TXT *.crb *.CRB);;All Files (*)",
+        )
+        if file_paths:
+            self.multi_source_paths = file_paths
+            self.source_path = ""
+            self.mapping_result = None
+            self.preview_search_input.clear()
+            self.mapping_model.set_records([])
+            self.source_picker.set_path("\n".join(file_paths), self._multi_source_display_text(file_paths))
+            self.summary_label.setText(f"{len(file_paths)} FILES")
+            self.status_label.setText("Sources selected")
+            self._update_mode_actions()
 
     def preview_mapping(self):
+        if self._is_multiple_mode():
+            QMessageBox.information(self, "Preview Mapping", "Preview table hanya tersedia untuk mode single feeder file.")
+            return
+
         source_path = self.source_picker.path()
         if not source_path:
             QMessageBox.warning(self, "Input belum lengkap", "File export mesin NPM belum dipilih.")
@@ -168,6 +227,10 @@ class FeederMappingPage(WorkerPage):
         self._update_summary(len(filtered_records), len(records))
 
     def generate_excel(self):
+        if self._is_multiple_mode():
+            self.generate_multiple_excel()
+            return
+
         source_path = self.source_picker.path()
         if not source_path:
             QMessageBox.warning(self, "Input belum lengkap", "File export mesin NPM belum dipilih.")
@@ -197,10 +260,48 @@ class FeederMappingPage(WorkerPage):
             "Generating feeder mapping Excel...",
         )
 
+    def generate_multiple_excel(self):
+        source_paths = list(self.multi_source_paths)
+        if not source_paths:
+            QMessageBox.warning(self, "Input belum lengkap", "File export mesin NPM belum dipilih.")
+            return
+
+        output_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Multiple Feeder Mapping Excel",
+            feeder_mapping_service.suggest_multiple_output_name(source_paths),
+            "Excel Workbook (*.xlsx)",
+        )
+        if not output_path:
+            return
+
+        self.run_worker(
+            lambda paths=source_paths, out=output_path: feeder_mapping_service.generate_multiple_feeder_mapping_excel(paths, out),
+            self._on_generate_multiple_done,
+            "Generating multiple feeder mapping Excel...",
+        )
+
     def _on_generate_from_source_done(self, payload):
         result, output_path = payload
         self._on_mapping_loaded(result)
         self._on_generate_done(output_path)
+
+    def _on_generate_multiple_done(self, result):
+        output_name = Path(result.output_path).name
+        self.status_label.setText(f"Saved: {output_name}")
+        self.status_label.setToolTip(result.output_path)
+        self.summary_label.setText(f"{result.row_count} ROWS | {result.source_count} FILES | {result.part_count} PARTS")
+        QMessageBox.information(
+            self,
+            "Generate Multiple Feeder Mapping",
+            (
+                f"Files: {result.source_count}\n"
+                f"Rows: {result.row_count}\n"
+                f"Unique parts: {result.part_count}\n"
+                f"Summary sheet: Summary\n"
+                f"File: {result.output_path}"
+            ),
+        )
 
     def _on_generate_done(self, output_path):
         output_name = Path(output_path).name
@@ -211,13 +312,14 @@ class FeederMappingPage(WorkerPage):
     def clear_data(self):
         self.mapping_result = None
         self.source_path = ""
+        self.multi_source_paths = []
         self.source_picker.clear()
         self.preview_search_input.clear()
         self.mapping_model.set_records([])
-        self.generate_btn.setEnabled(False)
-        self.summary_label.setText("0 ROWS")
+        self.summary_label.setText("0 FILES" if self._is_multiple_mode() else "0 ROWS")
         self.status_label.setText("")
         self.status_label.setToolTip("")
+        self._update_mode_actions()
 
     def _preview_search_text(self, record):
         return " ".join(
@@ -234,3 +336,35 @@ class FeederMappingPage(WorkerPage):
         if visible_count != total_count:
             summary = f"{visible_count}/{summary}"
         self.summary_label.setText(summary)
+
+    def _is_multiple_mode(self):
+        return self.multiple_mode_radio.isChecked()
+
+    def _sync_mode_ui(self):
+        is_multiple = self._is_multiple_mode()
+        self.source_picker.label.setText("NPM Machine Exports (.txt/.crb):" if is_multiple else "NPM Machine Export (.txt/.crb):")
+        self.source_picker.button.setText("Browse Files" if is_multiple else "Browse")
+        self.mapping_result = None
+        self.source_path = ""
+        self.multi_source_paths = []
+        self.source_picker.clear()
+        self.preview_search_input.clear()
+        self.mapping_model.set_records([])
+        self.summary_label.setText("0 FILES" if is_multiple else "0 ROWS")
+        self.status_label.setText("")
+        self.status_label.setToolTip("")
+        self._update_mode_actions()
+
+    def _update_mode_actions(self):
+        is_multiple = self._is_multiple_mode()
+        self.preview_btn.setEnabled(not is_multiple)
+        self.preview_search_input.setEnabled(not is_multiple)
+        self.generate_btn.setText("Generate Workbook" if is_multiple else "Generate Excel")
+        self.generate_btn.setEnabled(bool(self.multi_source_paths) if is_multiple else bool(self.source_picker.path()))
+
+    def _multi_source_display_text(self, file_paths):
+        file_names = [Path(path).name for path in file_paths]
+        preview = ", ".join(file_names[:3])
+        if len(file_names) > 3:
+            preview = f"{preview}, +{len(file_names) - 3} more"
+        return f"{len(file_names)} files selected: {preview}"

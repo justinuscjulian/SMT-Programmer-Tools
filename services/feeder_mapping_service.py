@@ -1,5 +1,6 @@
 import re
 import shlex
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -8,9 +9,22 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from services.errors import ServiceError
 from utils.encoding import read_lines_with_fallback
+from utils.sort import natural_sort_key
 
 
 OUTPUT_HEADERS = ["Table", "Slot", "Position", "Location Code", "Part Number"]
+SUMMARY_HEADERS = [
+    "Part Number",
+    "Most Common Location",
+    "Location Hit Count",
+    "Files With Part",
+    "Total Files",
+    "Coverage %",
+    "Total Feeders",
+    "Avg Feeders/Selected File",
+    "Location Summary",
+    "Feeder Files",
+]
 
 
 @dataclass
@@ -22,9 +36,27 @@ class FeederMappingResult:
     part_count: int
 
 
+@dataclass
+class FeederMappingBatchResult:
+    mappings: list
+    summary_records: list
+    source_count: int
+    row_count: int
+    part_count: int
+    output_path: str = ""
+
+
 def suggest_output_name(source_path):
     stem = _clean_filename_part(Path(source_path or "Feeder_Mapping").stem) or "Feeder_Mapping"
     return f"Feeder_Mapping_Result_{stem}.xlsx"
+
+
+def suggest_multiple_output_name(source_paths=None):
+    paths = list(source_paths or [])
+    if len(paths) == 1:
+        stem = _clean_filename_part(Path(paths[0]).stem) or "Multiple"
+        return f"Feeder_Mapping_Multiple_{stem}.xlsx"
+    return "Feeder_Mapping_Multiple_Result.xlsx"
 
 
 def load_feeder_mapping(file_path):
@@ -65,6 +97,28 @@ def generate_feeder_mapping_excel(source_path, output_path):
     return result, exported_path
 
 
+def load_multiple_feeder_mappings(source_paths):
+    paths = _clean_source_paths(source_paths)
+    if not paths:
+        raise ServiceError("Belum ada file export mesin NPM yang dipilih.", title="Input belum lengkap")
+
+    mappings = [load_feeder_mapping(path) for path in paths]
+    summary_records = _build_summary_records(mappings)
+    return FeederMappingBatchResult(
+        mappings=mappings,
+        summary_records=summary_records,
+        source_count=len(mappings),
+        row_count=sum(mapping.row_count for mapping in mappings),
+        part_count=len(summary_records),
+    )
+
+
+def generate_multiple_feeder_mapping_excel(source_paths, output_path):
+    result = load_multiple_feeder_mappings(source_paths)
+    result.output_path = export_multiple_feeder_mapping(result, output_path)
+    return result
+
+
 def export_feeder_mapping(records, output_path):
     output = Path(output_path)
     if output.suffix.lower() != ".xlsx":
@@ -74,20 +128,27 @@ def export_feeder_mapping(records, output_path):
     workbook = Workbook()
     worksheet = workbook.active
     worksheet.title = "Detailed Feeder Setup"
-    worksheet.append(OUTPUT_HEADERS)
+    _append_mapping_sheet(worksheet, records)
+    workbook.save(output)
+    return str(output)
 
-    for record in records:
-        worksheet.append(
-            [
-                record["table"],
-                record["slot"],
-                record["position"],
-                record["location_code"],
-                record["part_number"],
-            ]
-        )
 
-    _style_workbook(worksheet)
+def export_multiple_feeder_mapping(result, output_path):
+    output = Path(output_path)
+    if output.suffix.lower() != ".xlsx":
+        output = output.with_suffix(".xlsx")
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    workbook = Workbook()
+    summary_sheet = workbook.active
+    summary_sheet.title = "Summary"
+    _append_summary_sheet(summary_sheet, result)
+
+    used_titles = {"summary"}
+    for mapping in result.mappings:
+        worksheet = workbook.create_sheet(_unique_sheet_title(mapping.source_file, used_titles))
+        _append_mapping_sheet(worksheet, mapping.records)
+
     workbook.save(output)
     return str(output)
 
@@ -251,7 +312,128 @@ def _record(table, slot, position, location_code, part_number):
     }
 
 
-def _style_workbook(worksheet):
+def _append_mapping_sheet(worksheet, records):
+    worksheet.append(OUTPUT_HEADERS)
+
+    for record in records:
+        worksheet.append(
+            [
+                record["table"],
+                record["slot"],
+                record["position"],
+                record["location_code"],
+                record["part_number"],
+            ]
+        )
+
+    _style_mapping_sheet(worksheet)
+
+
+def _append_summary_sheet(worksheet, result):
+    worksheet.append(["Metric", "Value"])
+    worksheet.append(["Feeder File Count", result.source_count])
+    worksheet.append(["Total Feeder Rows", result.row_count])
+    worksheet.append(["Unique Parts", result.part_count])
+    worksheet.append([])
+    header_row = worksheet.max_row + 1
+    worksheet.append(SUMMARY_HEADERS)
+
+    for record in result.summary_records:
+        worksheet.append(
+            [
+                record["part_number"],
+                record["most_common_location"],
+                record["location_hit_count"],
+                record["files_with_part"],
+                record["total_files"],
+                record["coverage_percent"],
+                record["total_feeders"],
+                record["avg_feeders_per_selected_file"],
+                record["location_summary"],
+                record["feeder_files"],
+            ]
+        )
+
+    _style_summary_sheet(worksheet, header_row)
+
+
+def _build_summary_records(mappings):
+    total_files = len(mappings)
+    stats = {}
+
+    for mapping in mappings:
+        per_file = {}
+        for record in mapping.records:
+            part_number = str(record.get("part_number", "")).strip()
+            if not part_number:
+                continue
+            key = part_number.upper()
+            part_data = per_file.setdefault(
+                key,
+                {
+                    "part_number": part_number,
+                    "location_codes": [],
+                },
+            )
+            part_data["location_codes"].append(str(record.get("location_code", "")).strip())
+
+        for key, part_data in per_file.items():
+            item = stats.setdefault(
+                key,
+                {
+                    "part_number": part_data["part_number"],
+                    "files": [],
+                    "total_feeders": 0,
+                    "location_counts": Counter(),
+                },
+            )
+            feeder_count = len(part_data["location_codes"])
+            item["files"].append(mapping.source_file)
+            item["total_feeders"] += feeder_count
+            item["location_counts"].update(location for location in part_data["location_codes"] if location)
+
+    summary_records = []
+    for item in stats.values():
+        files_with_part = len(item["files"])
+        total_feeders = item["total_feeders"]
+        location_items = _sorted_location_counts(item["location_counts"])
+        top_count = location_items[0][1] if location_items else 0
+        most_common_locations = [location for location, count in location_items if count == top_count]
+        summary_records.append(
+            {
+                "part_number": item["part_number"],
+                "most_common_location": ", ".join(most_common_locations),
+                "location_hit_count": top_count,
+                "files_with_part": files_with_part,
+                "total_files": total_files,
+                "coverage_percent": round((files_with_part / total_files) * 100, 2) if total_files else 0,
+                "total_feeders": total_feeders,
+                "avg_feeders_per_selected_file": round(total_feeders / total_files, 2) if total_files else 0,
+                "location_summary": ", ".join(f"{location} ({count})" for location, count in location_items),
+                "feeder_files": ", ".join(item["files"]),
+            }
+        )
+
+    summary_records.sort(
+        key=lambda row: (
+            -row["files_with_part"],
+            natural_sort_key(row["part_number"]),
+        )
+    )
+    return summary_records
+
+
+def _sorted_location_counts(location_counts):
+    return sorted(
+        location_counts.items(),
+        key=lambda item: (
+            -item[1],
+            natural_sort_key(item[0]),
+        ),
+    )
+
+
+def _style_mapping_sheet(worksheet):
     header_fill = PatternFill("solid", fgColor="FF2B3A4C")
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFFFF")
     default_font = Font(name="Calibri", size=11)
@@ -277,6 +459,96 @@ def _style_workbook(worksheet):
 
     worksheet.freeze_panes = "A2"
     worksheet.auto_filter.ref = worksheet.dimensions
+
+
+def _style_summary_sheet(worksheet, header_row):
+    header_fill = PatternFill("solid", fgColor="FF2B3A4C")
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFFFF")
+    default_font = Font(name="Calibri", size=11)
+    metric_font = Font(name="Calibri", size=11, bold=True)
+    border_side = Side(style="thin", color="FFD3D3D3")
+    border = Border(left=border_side, right=border_side, top=border_side, bottom=border_side)
+
+    widths = {
+        "A": 28,
+        "B": 22,
+        "C": 16,
+        "D": 16,
+        "E": 13,
+        "F": 12,
+        "G": 14,
+        "H": 26,
+        "I": 44,
+        "J": 70,
+    }
+    for column_letter, width in widths.items():
+        worksheet.column_dimensions[column_letter].width = width
+
+    for row in worksheet.iter_rows(min_row=1, max_row=4, max_col=2):
+        row[0].font = metric_font
+        for cell in row:
+            cell.border = border
+            cell.alignment = Alignment(horizontal="left", vertical="center")
+
+    for cell in worksheet[header_row]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = border
+
+    for row in worksheet.iter_rows(min_row=header_row + 1):
+        for cell in row:
+            cell.font = default_font
+            cell.border = border
+            horizontal = "left" if cell.column in (1, 2, 9, 10) else "center"
+            cell.alignment = Alignment(horizontal=horizontal, vertical="center")
+
+    worksheet.freeze_panes = f"A{header_row + 1}"
+    worksheet.auto_filter.ref = f"A{header_row}:J{worksheet.max_row}"
+
+
+def _unique_sheet_title(source_file, used_titles):
+    base = _clean_sheet_title(Path(source_file or "Feeder Setup").stem) or "Feeder Setup"
+    if base.lower() == "summary":
+        base = "Summary Detail"
+
+    title = base[:31]
+    counter = 2
+    while title.lower() in used_titles:
+        suffix = f" ({counter})"
+        title = f"{base[:31 - len(suffix)]}{suffix}"
+        counter += 1
+
+    used_titles.add(title.lower())
+    return title
+
+
+def _clean_sheet_title(value):
+    text = str(value or "").strip()
+    text = re.sub(r"[\[\]:*?/\\]+", "_", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip(" .'")
+
+
+def _clean_source_paths(source_paths):
+    if isinstance(source_paths, (str, Path)):
+        raw_paths = [source_paths]
+    else:
+        raw_paths = list(source_paths or [])
+
+    paths = []
+    seen = set()
+    for raw_path in raw_paths:
+        path = _clean_path(raw_path)
+        if not path:
+            continue
+        normalized = str(Path(path))
+        key = normalized.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        paths.append(normalized)
+    return paths
 
 
 def _clean_filename_part(value):
