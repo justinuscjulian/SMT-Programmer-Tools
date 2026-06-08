@@ -134,6 +134,23 @@ HELP_SECTIONS = [
         ],
     },
     {
+        "title": "Used Part Component AVG Insert Collector",
+        "subtitle": "Collect component dari Excel program sekaligus hitung rata-rata insert per component.",
+        "steps": [
+            "Buka Other Tools lalu pilih AVG Insert Component.",
+            "Pilih Mode 1 untuk summarize berdasarkan PCB Part Number, atau Mode 2 untuk summarize per Excel program.",
+            "Untuk Mode 1, pilih Folder Induk PCB lalu paste list PCB Part Number.",
+            "Untuk Mode 2, pilih folder yang berisi file Excel program.",
+            "Klik Generate AVG Insert Excel lalu pilih lokasi output.",
+        ],
+        "notes": [
+            "Insert dihitung dari jumlah kemunculan part di sheet BOM kolom C sebelum duplicate dihapus.",
+            "Row dengan kolom F berisi #N/A, #NA, atau N/A tidak ikut dihitung.",
+            "Sheet detail berisi component dan AVG INSERT, sedangkan sheet MASTER menambahkan kolom AVG INSERT di paling kanan.",
+            "Nilai AVG INSERT dibulatkan ke angka bulat tanpa digit di belakang koma.",
+        ],
+    },
+    {
         "title": "Component Usage Finder",
         "subtitle": "Cari component part number dipakai di model dan PCB part number apa saja.",
         "steps": [

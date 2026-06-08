@@ -3,6 +3,7 @@ from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QPushButton, QSt
 
 from ui.icons import make_icon
 from ui.pages.all_in_one_page import AllInOneComparatorPage
+from ui.pages.average_insert_component_page import AverageInsertComponentPage
 from ui.pages.component_usage_finder_page import ComponentUsageFinderPage
 from ui.pages.common_feeder_reuse_page import CommonFeederReusePage
 from ui.pages.feeder_mapping_page import FeederMappingPage
@@ -40,6 +41,7 @@ class OtherToolsPage(QWidget):
         self.stack.addWidget(self._build_new_pcb_page())
         self.stack.addWidget(self._build_insert_point_page())
         self.stack.addWidget(self._build_used_part_component_page())
+        self.stack.addWidget(self._build_average_insert_component_page())
         self.stack.addWidget(self._build_component_usage_page())
         self.stack.addWidget(self._build_common_feeder_reuse_page())
         self.stack.addWidget(self._build_model_feeder_group_page())
@@ -126,6 +128,13 @@ class OtherToolsPage(QWidget):
                 "Collect part component dari Excel program",
                 "used_part_component",
                 self.open_used_part_component,
+            ),
+            (
+                "average_insert_component_button",
+                "AVG Insert Component",
+                "Collect component dengan rata-rata insert",
+                "avg_insert_component",
+                self.open_average_insert_component,
             ),
             (
                 "component_usage_button",
@@ -321,6 +330,26 @@ class OtherToolsPage(QWidget):
         layout.addWidget(self.used_part_component_page, 1)
         return page
 
+    def _build_average_insert_component_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        top = QHBoxLayout()
+        self.back_average_insert_component_button = QPushButton("Back to Tools")
+        self.back_average_insert_component_button.clicked.connect(self.open_menu)
+        title = QLabel("Used Part Component AVG Insert Collector")
+        title.setObjectName("TitleLabel")
+        top.addWidget(self.back_average_insert_component_button)
+        top.addWidget(title)
+        top.addStretch(1)
+        layout.addLayout(top)
+
+        self.average_insert_component_page = AverageInsertComponentPage(self.thread_pool, self.theme_manager)
+        layout.addWidget(self.average_insert_component_page, 1)
+        return page
+
     def _build_component_usage_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -412,14 +441,17 @@ class OtherToolsPage(QWidget):
     def open_used_part_component(self):
         self.stack.setCurrentIndex(8)
 
-    def open_component_usage(self):
+    def open_average_insert_component(self):
         self.stack.setCurrentIndex(9)
 
-    def open_common_feeder_reuse(self):
+    def open_component_usage(self):
         self.stack.setCurrentIndex(10)
 
-    def open_model_feeder_group(self):
+    def open_common_feeder_reuse(self):
         self.stack.setCurrentIndex(11)
+
+    def open_model_feeder_group(self):
+        self.stack.setCurrentIndex(12)
 
     def open_worksheet_bom(self):
         self.stack.setCurrentIndex(2)
@@ -450,6 +482,8 @@ class OtherToolsPage(QWidget):
             self.back_insert_point_button.setIcon(make_icon("arrow_left", theme["text"]))
         if hasattr(self, "back_used_part_component_button"):
             self.back_used_part_component_button.setIcon(make_icon("arrow_left", theme["text"]))
+        if hasattr(self, "back_average_insert_component_button"):
+            self.back_average_insert_component_button.setIcon(make_icon("arrow_left", theme["text"]))
         if hasattr(self, "back_component_usage_button"):
             self.back_component_usage_button.setIcon(make_icon("arrow_left", theme["text"]))
         if hasattr(self, "back_common_feeder_reuse_button"):

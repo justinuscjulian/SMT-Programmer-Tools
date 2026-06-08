@@ -112,6 +112,15 @@ def make_icon(name, color="#2563eb", size=24):
         painter.drawLine(QPointF(9, 4), QPointF(9, 20))
         painter.drawLine(QPointF(14, 4), QPointF(14, 20))
         painter.drawEllipse(QPointF(16.8, 16.8), 1.3, 1.3)
+    elif name == "avg_insert_component":
+        painter.drawRoundedRect(QRectF(4, 4, 16, 16), 2.5, 2.5)
+        painter.drawLine(QPointF(4, 9), QPointF(20, 9))
+        painter.drawLine(QPointF(4, 14), QPointF(20, 14))
+        painter.drawLine(QPointF(9, 4), QPointF(9, 20))
+        painter.drawLine(QPointF(14, 4), QPointF(14, 20))
+        painter.drawLine(QPointF(6.8, 18), QPointF(10, 15.5))
+        painter.drawLine(QPointF(10, 15.5), QPointF(12.5, 17))
+        painter.drawLine(QPointF(12.5, 17), QPointF(17.2, 11.5))
     elif name == "component_usage":
         painter.drawRoundedRect(QRectF(4, 4, 12, 14), 2.5, 2.5)
         painter.drawLine(QPointF(7, 8), QPointF(13, 8))
