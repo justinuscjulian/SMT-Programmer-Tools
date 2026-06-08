@@ -15,15 +15,10 @@ from utils.sort import natural_sort_key
 OUTPUT_HEADERS = ["Table", "Slot", "Position", "Location Code", "Part Number"]
 SUMMARY_HEADERS = [
     "Part Number",
-    "Most Common Location",
-    "Location Hit Count",
-    "Files With Part",
-    "Total Files",
-    "Coverage %",
-    "Total Feeders",
-    "Avg Feeders/Selected File",
-    "Location Summary",
-    "Feeder Files",
+    "Feeder Paling Sering",
+    "Jumlah di Feeder Itu",
+    "Total Muncul",
+    "Feeder Lain",
 ]
 
 
@@ -330,27 +325,17 @@ def _append_mapping_sheet(worksheet, records):
 
 
 def _append_summary_sheet(worksheet, result):
-    worksheet.append(["Metric", "Value"])
-    worksheet.append(["Feeder File Count", result.source_count])
-    worksheet.append(["Total Feeder Rows", result.row_count])
-    worksheet.append(["Unique Parts", result.part_count])
-    worksheet.append([])
-    header_row = worksheet.max_row + 1
+    header_row = 1
     worksheet.append(SUMMARY_HEADERS)
 
     for record in result.summary_records:
         worksheet.append(
             [
                 record["part_number"],
-                record["most_common_location"],
-                record["location_hit_count"],
-                record["files_with_part"],
-                record["total_files"],
-                record["coverage_percent"],
-                record["total_feeders"],
-                record["avg_feeders_per_selected_file"],
-                record["location_summary"],
-                record["feeder_files"],
+                record["top_location"],
+                record["top_count"],
+                record["total_count"],
+                record["other_locations"],
             ]
         )
 
@@ -358,65 +343,44 @@ def _append_summary_sheet(worksheet, result):
 
 
 def _build_summary_records(mappings):
-    total_files = len(mappings)
     stats = {}
 
     for mapping in mappings:
-        per_file = {}
         for record in mapping.records:
             part_number = str(record.get("part_number", "")).strip()
             if not part_number:
                 continue
             key = part_number.upper()
-            part_data = per_file.setdefault(
-                key,
-                {
-                    "part_number": part_number,
-                    "location_codes": [],
-                },
-            )
-            part_data["location_codes"].append(str(record.get("location_code", "")).strip())
-
-        for key, part_data in per_file.items():
             item = stats.setdefault(
                 key,
                 {
-                    "part_number": part_data["part_number"],
-                    "files": [],
-                    "total_feeders": 0,
+                    "part_number": part_number,
                     "location_counts": Counter(),
                 },
             )
-            feeder_count = len(part_data["location_codes"])
-            item["files"].append(mapping.source_file)
-            item["total_feeders"] += feeder_count
-            item["location_counts"].update(location for location in part_data["location_codes"] if location)
+            location_code = str(record.get("location_code", "")).strip()
+            if location_code:
+                item["location_counts"][location_code] += 1
 
     summary_records = []
     for item in stats.values():
-        files_with_part = len(item["files"])
-        total_feeders = item["total_feeders"]
         location_items = _sorted_location_counts(item["location_counts"])
         top_count = location_items[0][1] if location_items else 0
-        most_common_locations = [location for location, count in location_items if count == top_count]
+        top_locations = [location for location, count in location_items if count == top_count]
+        other_locations = [(location, count) for location, count in location_items if count != top_count]
         summary_records.append(
             {
                 "part_number": item["part_number"],
-                "most_common_location": ", ".join(most_common_locations),
-                "location_hit_count": top_count,
-                "files_with_part": files_with_part,
-                "total_files": total_files,
-                "coverage_percent": round((files_with_part / total_files) * 100, 2) if total_files else 0,
-                "total_feeders": total_feeders,
-                "avg_feeders_per_selected_file": round(total_feeders / total_files, 2) if total_files else 0,
-                "location_summary": ", ".join(f"{location} ({count})" for location, count in location_items),
-                "feeder_files": ", ".join(item["files"]),
+                "top_location": ", ".join(top_locations),
+                "top_count": top_count,
+                "total_count": sum(count for _, count in location_items),
+                "other_locations": ", ".join(f"{location} ({count}x)" for location, count in other_locations),
             }
         )
 
     summary_records.sort(
         key=lambda row: (
-            -row["files_with_part"],
+            -row["top_count"],
             natural_sort_key(row["part_number"]),
         )
     )
@@ -465,7 +429,6 @@ def _style_summary_sheet(worksheet, header_row):
     header_fill = PatternFill("solid", fgColor="FF2B3A4C")
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFFFF")
     default_font = Font(name="Calibri", size=11)
-    metric_font = Font(name="Calibri", size=11, bold=True)
     border_side = Side(style="thin", color="FFD3D3D3")
     border = Border(left=border_side, right=border_side, top=border_side, bottom=border_side)
 
@@ -473,22 +436,11 @@ def _style_summary_sheet(worksheet, header_row):
         "A": 28,
         "B": 22,
         "C": 16,
-        "D": 16,
-        "E": 13,
-        "F": 12,
-        "G": 14,
-        "H": 26,
-        "I": 44,
-        "J": 70,
+        "D": 14,
+        "E": 44,
     }
     for column_letter, width in widths.items():
         worksheet.column_dimensions[column_letter].width = width
-
-    for row in worksheet.iter_rows(min_row=1, max_row=4, max_col=2):
-        row[0].font = metric_font
-        for cell in row:
-            cell.border = border
-            cell.alignment = Alignment(horizontal="left", vertical="center")
 
     for cell in worksheet[header_row]:
         cell.fill = header_fill
@@ -500,11 +452,11 @@ def _style_summary_sheet(worksheet, header_row):
         for cell in row:
             cell.font = default_font
             cell.border = border
-            horizontal = "left" if cell.column in (1, 2, 9, 10) else "center"
+            horizontal = "left" if cell.column in (1, 2, 5) else "center"
             cell.alignment = Alignment(horizontal=horizontal, vertical="center")
 
     worksheet.freeze_panes = f"A{header_row + 1}"
-    worksheet.auto_filter.ref = f"A{header_row}:J{worksheet.max_row}"
+    worksheet.auto_filter.ref = f"A{header_row}:E{worksheet.max_row}"
 
 
 def _unique_sheet_title(source_file, used_titles):

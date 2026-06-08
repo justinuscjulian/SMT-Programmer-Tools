@@ -98,7 +98,7 @@ HELP_SECTIONS = [
             "Feeder kecil dibuat sebagai posisi L/R.",
             "Feeder besar dibuat sebagai Large (2-Rel) atau Extra Large (3-Rel).",
             "Mode multiple membuat satu workbook berisi sheet Summary dan sheet detail terpisah untuk setiap feeder file.",
-            "Summary menampilkan lokasi feeder yang paling sering dipakai, coverage part dari total file, dan average feeder per file.",
+            "Summary dibuat simple untuk melihat tiap komponen paling sering terpasang di feeder nomor berapa.",
         ],
     },
     {
