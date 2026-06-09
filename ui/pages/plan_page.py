@@ -78,10 +78,13 @@ class PlanPage(WorkerPage):
 
         self.previous_plan_picker = FilePicker("PLAN sebelumnya:")
         self.new_plan_picker = FilePicker("PLAN baru:")
+        self.history_folder_picker = FilePicker("Folder history:")
         self.previous_plan_picker.browse_requested.connect(self.browse_previous_plan)
         self.new_plan_picker.browse_requested.connect(self.browse_new_plan)
+        self.history_folder_picker.browse_requested.connect(self.browse_history_folder)
         files_card.layout.addWidget(self.previous_plan_picker)
         files_card.layout.addWidget(self.new_plan_picker)
+        files_card.layout.addWidget(self.history_folder_picker)
         root.addWidget(files_card)
 
         action_bar = QHBoxLayout()
@@ -109,6 +112,7 @@ class PlanPage(WorkerPage):
             self.clear_btn,
             self.previous_plan_picker.button,
             self.new_plan_picker.button,
+            self.history_folder_picker.button,
         )
 
     def browse_previous_plan(self):
@@ -116,6 +120,11 @@ class PlanPage(WorkerPage):
 
     def browse_new_plan(self):
         self._browse_file(self.new_plan_picker, "Pilih PLAN baru")
+
+    def browse_history_folder(self):
+        folder_path = QFileDialog.getExistingDirectory(self, "Pilih Folder History Program")
+        if folder_path:
+            self.history_folder_picker.set_path(folder_path)
 
     def _browse_file(self, picker, title):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -151,6 +160,7 @@ class PlanPage(WorkerPage):
             previous_plan_path=self.previous_plan_picker.path(),
             new_plan_path=self.new_plan_picker.path(),
             output_path=output_path,
+            history_folder_path=self.history_folder_picker.path(),
         )
         self.run_worker(lambda: generate_plan(config), self._on_generate_done, "Generating PLAN...")
 
@@ -161,7 +171,13 @@ class PlanPage(WorkerPage):
         QMessageBox.information(
             self,
             "PLAN Selesai",
-            f"Sheet: {result.sheet_name}\nMatch: {result.matched_count}\nYang baru masuk: {result.not_found_count}\nFile: {result.output_path}",
+            f"Sheet: {result.sheet_name}\n"
+            f"Match PLAN sebelumnya: {result.matched_count}\n"
+            f"Perlu history: {result.not_found_count}\n"
+            f"Terisi dari history: {result.history_found_count}\n"
+            f"Ada di line lain: {result.history_other_line_count}\n"
+            f"History tidak ditemukan: {result.history_not_found_count}\n"
+            f"File: {result.output_path}",
         )
 
     def _plan_type(self):
@@ -184,11 +200,20 @@ class PlanPage(WorkerPage):
                 QMessageBox.warning(self, "File tidak ditemukan", f"{label} tidak ditemukan:\n{path}")
                 return False
 
+        history_path = self.history_folder_picker.path()
+        if not history_path:
+            QMessageBox.warning(self, "Input belum lengkap", "Folder history belum dipilih.")
+            return False
+        if not Path(history_path).is_dir():
+            QMessageBox.warning(self, "Folder tidak ditemukan", f"Folder history tidak ditemukan:\n{history_path}")
+            return False
+
         return True
 
     def clear_form(self):
         self.previous_plan_picker.clear()
         self.new_plan_picker.clear()
+        self.history_folder_picker.clear()
         self.first_plan_btn.setChecked(True)
         self.status_label.setText("")
         self.status_label.setToolTip("")

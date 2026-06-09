@@ -5,6 +5,7 @@ from ui.icons import make_icon
 from ui.pages.all_in_one_page import AllInOneComparatorPage
 from ui.pages.average_insert_component_page import AverageInsertComponentPage
 from ui.pages.component_usage_finder_page import ComponentUsageFinderPage
+from ui.pages.component_usage_plan_page import ComponentUsagePlanPage
 from ui.pages.common_feeder_reuse_page import CommonFeederReusePage
 from ui.pages.feeder_mapping_page import FeederMappingPage
 from ui.pages.insert_point_page import InsertPointPage
@@ -43,6 +44,7 @@ class OtherToolsPage(QWidget):
         self.stack.addWidget(self._build_used_part_component_page())
         self.stack.addWidget(self._build_average_insert_component_page())
         self.stack.addWidget(self._build_component_usage_page())
+        self.stack.addWidget(self._build_component_usage_plan_page())
         self.stack.addWidget(self._build_common_feeder_reuse_page())
         self.stack.addWidget(self._build_model_feeder_group_page())
         root.addWidget(self.stack, 1)
@@ -142,6 +144,13 @@ class OtherToolsPage(QWidget):
                 "Cari component dipakai di model dan PCB apa saja",
                 "component_usage",
                 self.open_component_usage,
+            ),
+            (
+                "component_usage_plan_button",
+                "Component Usage Finder\non Excel Plan",
+                "Cari component dari history Excel plan",
+                "component_usage",
+                self.open_component_usage_plan,
             ),
             (
                 "common_feeder_reuse_button",
@@ -370,6 +379,26 @@ class OtherToolsPage(QWidget):
         layout.addWidget(self.component_usage_page, 1)
         return page
 
+    def _build_component_usage_plan_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        top = QHBoxLayout()
+        self.back_component_usage_plan_button = QPushButton("Back to Tools")
+        self.back_component_usage_plan_button.clicked.connect(self.open_menu)
+        title = QLabel("Component Usage Finder on Excel Plan")
+        title.setObjectName("TitleLabel")
+        top.addWidget(self.back_component_usage_plan_button)
+        top.addWidget(title)
+        top.addStretch(1)
+        layout.addLayout(top)
+
+        self.component_usage_plan_page = ComponentUsagePlanPage(self.thread_pool, self.theme_manager)
+        layout.addWidget(self.component_usage_plan_page, 1)
+        return page
+
     def _build_common_feeder_reuse_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -415,7 +444,7 @@ class OtherToolsPage(QWidget):
         button.setObjectName("ToolMenuButton")
         button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         button.setIconSize(QSize(30, 30))
-        button.setMinimumHeight(72)
+        button.setMinimumHeight(92 if "\n" in title else 72)
         button.setText(f"{title}\n{subtitle}")
         button.setToolTip(title)
         button.clicked.connect(callback)
@@ -447,11 +476,14 @@ class OtherToolsPage(QWidget):
     def open_component_usage(self):
         self.stack.setCurrentIndex(10)
 
-    def open_common_feeder_reuse(self):
+    def open_component_usage_plan(self):
         self.stack.setCurrentIndex(11)
 
-    def open_model_feeder_group(self):
+    def open_common_feeder_reuse(self):
         self.stack.setCurrentIndex(12)
+
+    def open_model_feeder_group(self):
+        self.stack.setCurrentIndex(13)
 
     def open_worksheet_bom(self):
         self.stack.setCurrentIndex(2)
@@ -486,6 +518,8 @@ class OtherToolsPage(QWidget):
             self.back_average_insert_component_button.setIcon(make_icon("arrow_left", theme["text"]))
         if hasattr(self, "back_component_usage_button"):
             self.back_component_usage_button.setIcon(make_icon("arrow_left", theme["text"]))
+        if hasattr(self, "back_component_usage_plan_button"):
+            self.back_component_usage_plan_button.setIcon(make_icon("arrow_left", theme["text"]))
         if hasattr(self, "back_common_feeder_reuse_button"):
             self.back_common_feeder_reuse_button.setIcon(make_icon("arrow_left", theme["text"]))
         if hasattr(self, "back_model_feeder_group_button"):

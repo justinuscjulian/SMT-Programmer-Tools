@@ -26,6 +26,7 @@ class PlanConfig:
     previous_plan_path: str
     new_plan_path: str
     output_path: str
+    history_folder_path: str = ""
 
 
 @dataclass
@@ -34,6 +35,9 @@ class PlanResult:
     sheet_name: str
     matched_count: int
     not_found_count: int
+    history_found_count: int = 0
+    history_other_line_count: int = 0
+    history_not_found_count: int = 0
 
 
 @dataclass
@@ -41,6 +45,28 @@ class PlanBlock:
     key: str
     start_row: int
     end_row: int
+
+
+@dataclass
+class PlanProcessResult:
+    matched_count: int = 0
+    not_found_count: int = 0
+    history_found_count: int = 0
+    history_other_line_count: int = 0
+    history_not_found_count: int = 0
+
+
+@dataclass
+class HistoryProgramMatch:
+    value: str
+    status: str
+
+
+HISTORY_STATUS_FOUND = "found"
+HISTORY_STATUS_OTHER_LINE = "other_line"
+HISTORY_STATUS_NOT_FOUND = "not_found"
+HISTORY_OTHER_LINE_TEXT = "Program ada di LINE lain"
+HISTORY_NOT_FOUND_TEXT = "History program tidak ditemukan"
 
 
 def suggest_output_name(plan_type, previous_plan_path="", new_plan_path=""):
@@ -66,6 +92,65 @@ def suggest_output_name(plan_type, previous_plan_path="", new_plan_path=""):
     plan_name = re.sub(r"^\(RE_\d{6}_(?:1ST|2ND|3RD)\)\s+", "", stem, flags=re.IGNORECASE)
     plan_name = re.sub(r"^\d+\.\s*", "", plan_name).strip() or stem
     return f"(RE_{datetime.now().strftime('%y%m%d')}_{suffix}) {plan_name}.xlsx"
+
+
+class HistoryProgramIndex:
+    def __init__(self, folder_path):
+        self.files = []
+        with os.scandir(folder_path) as entries:
+            for entry in entries:
+                if entry.is_file():
+                    self.files.append((entry.name, entry.name.upper()))
+        self.files.sort(key=lambda item: item[0].upper())
+
+    def find(self, raw_part_number, pcb_number, line_id):
+        part_digits = _digits_only(raw_part_number)
+        pcb_text = _cell_text(pcb_number)
+
+        if not part_digits or not pcb_text:
+            return HistoryProgramMatch(HISTORY_NOT_FOUND_TEXT, HISTORY_STATUS_NOT_FOUND)
+
+        part_token = part_digits.upper()
+        pcb_token = pcb_text.upper()
+        line_marker = f"(INI{line_id})".upper() if line_id else ""
+
+        best_match = ""
+        old_match = ""
+        found_in_other_line = False
+        any_file_found = False
+
+        for file_name, upper_name in self.files:
+            if part_token not in upper_name or pcb_token not in upper_name:
+                continue
+
+            any_file_found = True
+            is_old = "(OLD)" in upper_name
+
+            if line_marker:
+                if line_marker in upper_name:
+                    if is_old:
+                        if not old_match:
+                            old_match = file_name
+                    else:
+                        best_match = file_name
+                        break
+                else:
+                    found_in_other_line = True
+            elif is_old:
+                if not old_match:
+                    old_match = file_name
+            elif not best_match:
+                best_match = file_name
+
+        final_file = best_match or old_match
+        if final_file:
+            return HistoryProgramMatch(final_file, HISTORY_STATUS_FOUND)
+        if found_in_other_line:
+            return HistoryProgramMatch(HISTORY_OTHER_LINE_TEXT, HISTORY_STATUS_OTHER_LINE)
+        if not any_file_found:
+            return HistoryProgramMatch(HISTORY_NOT_FOUND_TEXT, HISTORY_STATUS_NOT_FOUND)
+
+        return HistoryProgramMatch(HISTORY_NOT_FOUND_TEXT, HISTORY_STATUS_NOT_FOUND)
 
 
 def generate_plan(config: PlanConfig):
@@ -119,13 +204,14 @@ def generate_plan(config: PlanConfig):
 
         previous_ws = previous_wb.ActiveSheet
         output_ws = output_wb.ActiveSheet
+        history_index = HistoryProgramIndex(config.history_folder_path)
 
         if config.plan_type == PLAN_TYPE_FIRST:
             _apply_first_plan_adjustments(output_ws)
-            matched_count, not_found_count = _process_first_plan(output_ws, previous_ws)
+            process_result = _process_first_plan(output_ws, previous_ws, history_index)
         else:
             _apply_next_plan_adjustments(output_ws)
-            matched_count, not_found_count = _process_next_plan(output_ws, previous_ws)
+            process_result = _process_next_plan(output_ws, previous_ws, history_index)
 
         output_wb.Save()
         sheet_name = output_ws.Name
@@ -139,14 +225,21 @@ def generate_plan(config: PlanConfig):
             _restore_and_quit_excel(excel)
         pythoncom.CoUninitialize()
 
-    return PlanResult(str(output_path), sheet_name, matched_count, not_found_count)
+    return PlanResult(
+        str(output_path),
+        sheet_name,
+        process_result.matched_count,
+        process_result.not_found_count,
+        process_result.history_found_count,
+        process_result.history_other_line_count,
+        process_result.history_not_found_count,
+    )
 
 
-def _process_first_plan(output_ws, previous_ws):
+def _process_first_plan(output_ws, previous_ws, history_index):
     output_blocks = _find_plan_blocks(output_ws)
     previous_lookup = _build_lookup_by_block(previous_ws, key_col=3, value_col=22)
-    matched_count = 0
-    not_found_count = 0
+    result = PlanProcessResult()
 
     for block in output_blocks:
         lookup = previous_lookup.get(block.key, {})
@@ -158,24 +251,23 @@ def _process_first_plan(output_ws, previous_ws):
             matched = lookup.get(key.upper())
             target_cell = output_ws.Cells(row, 22)
             if matched is None:
-                target_cell.Value = "#N/A"
-                not_found_count += 1
+                result.not_found_count += 1
+                _apply_history_fallback(output_ws, row, target_cell, history_index, result)
                 continue
 
             target_cell.Value = matched["value"]
             _set_grey_fill(target_cell)
             _set_grey_fill(output_ws.Cells(row, 7))
-            matched_count += 1
+            result.matched_count += 1
 
     _clear_column_borders(output_ws, 22)
-    return matched_count, not_found_count
+    return result
 
 
-def _process_next_plan(output_ws, previous_ws):
+def _process_next_plan(output_ws, previous_ws, history_index):
     output_blocks = _find_plan_blocks(output_ws)
     previous_lookup = _build_lookup_by_block(previous_ws, key_col=3, value_col=22, extra_cols=(7, 16))
-    matched_count = 0
-    not_found_count = 0
+    result = PlanProcessResult()
 
     for block in output_blocks:
         lookup = previous_lookup.get(block.key, {})
@@ -187,8 +279,8 @@ def _process_next_plan(output_ws, previous_ws):
             matched = lookup.get(key.upper())
             target_cell = output_ws.Cells(row, 22)
             if matched is None:
-                target_cell.Value = "#N/A"
-                not_found_count += 1
+                result.not_found_count += 1
+                _apply_history_fallback(output_ws, row, target_cell, history_index, result)
                 continue
 
             target_cell.Value = matched["value"]
@@ -199,11 +291,29 @@ def _process_next_plan(output_ws, previous_ws):
             s2_target = output_ws.Cells(row, 16)
             s2_target.Value = s2_source.Value
             _copy_fill(s2_source, s2_target)
-            matched_count += 1
+            result.matched_count += 1
 
     _set_column_font_color(output_ws, 16, BLACK_FONT)
     _clear_column_borders(output_ws, 22)
-    return matched_count, not_found_count
+    return result
+
+
+def _apply_history_fallback(output_ws, row, target_cell, history_index, result):
+    history_match = history_index.find(
+        output_ws.Cells(row, 7).Value,
+        output_ws.Cells(row, 9).Value,
+        _history_line_id(output_ws.Cells(row, 1).Value),
+    )
+
+    target_cell.Value = history_match.value
+    _clear_cell_fill_and_borders(target_cell)
+
+    if history_match.status == HISTORY_STATUS_FOUND:
+        result.history_found_count += 1
+    elif history_match.status == HISTORY_STATUS_OTHER_LINE:
+        result.history_other_line_count += 1
+    else:
+        result.history_not_found_count += 1
 
 
 def _apply_first_plan_adjustments(ws):
@@ -283,6 +393,13 @@ def _clear_column_fill_and_borders(ws, column):
     target = ws.Columns(column)
     target.Interior.Pattern = XL_NONE
     _clear_column_borders(ws, column)
+
+
+def _clear_cell_fill_and_borders(cell):
+    cell.Interior.Pattern = XL_NONE
+    cell.Borders.LineStyle = XL_NONE
+    for border_index in range(7, 13):
+        cell.Borders(border_index).LineStyle = XL_NONE
 
 
 def _clear_column_borders(ws, column):
@@ -381,6 +498,23 @@ def _line_key(value):
     return re.sub(r"\s+", "", match.group(1))
 
 
+def _history_line_id(value):
+    text = _cell_text(value)
+    if not text:
+        return ""
+
+    line_match = re.search(r"^(.*?)\s*LINE\b", text, flags=re.IGNORECASE)
+    if line_match:
+        prefix = re.sub(r"\s+", "", line_match.group(1).strip())
+        if prefix:
+            return prefix.upper()
+
+    block_key = _line_key(text)
+    if block_key.endswith("LINE"):
+        return block_key[:-4]
+    return block_key
+
+
 def _copy_fill(source_cell, target_cell):
     try:
         if source_cell.Interior.Pattern == XL_NONE:
@@ -396,6 +530,10 @@ def _cell_text(value):
     if value is None:
         return ""
     return str(value).strip()
+
+
+def _digits_only(value):
+    return "".join(char for char in _cell_text(value) if char.isdigit())
 
 
 def _configure_excel_for_background(excel):
@@ -455,6 +593,14 @@ def _validate_config(config):
 
     if not config.output_path:
         raise ServiceError("Lokasi output belum dipilih.", title="Input belum lengkap")
+
+    if not config.history_folder_path:
+        raise ServiceError("Folder history belum dipilih.", title="Input belum lengkap")
+    if not Path(config.history_folder_path).is_dir():
+        raise ServiceError(
+            f"Folder history tidak ditemukan:\n{config.history_folder_path}",
+            title="Folder tidak ditemukan",
+        )
 
     output_path = _normalize_output_path(config.output_path)
     input_paths = {Path(config.previous_plan_path).resolve(), Path(config.new_plan_path).resolve()}

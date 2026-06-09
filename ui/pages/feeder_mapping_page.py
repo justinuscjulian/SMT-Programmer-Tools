@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QRadioButton,
@@ -57,13 +58,22 @@ class FeederMappingPage(WorkerPage):
         mode_row = QHBoxLayout()
         self.single_mode_radio = QRadioButton("Single Feeder File")
         self.multiple_mode_radio = QRadioButton("Multiple Feeder Files")
+        self.cm602_mode_radio = QRadioButton("CM602")
+        self.import_mode_radio = QRadioButton("Generate NPM Import File")
         self.single_mode_radio.setChecked(True)
         self.mode_group = QButtonGroup(self)
         self.mode_group.addButton(self.single_mode_radio)
         self.mode_group.addButton(self.multiple_mode_radio)
+        self.mode_group.addButton(self.cm602_mode_radio)
+        self.mode_group.addButton(self.import_mode_radio)
         self.single_mode_radio.toggled.connect(self._sync_mode_ui)
+        self.multiple_mode_radio.toggled.connect(self._sync_mode_ui)
+        self.cm602_mode_radio.toggled.connect(self._sync_mode_ui)
+        self.import_mode_radio.toggled.connect(self._sync_mode_ui)
         mode_row.addWidget(self.single_mode_radio)
         mode_row.addWidget(self.multiple_mode_radio)
+        mode_row.addWidget(self.cm602_mode_radio)
+        mode_row.addWidget(self.import_mode_radio)
         mode_row.addStretch(1)
         mode_card.layout.addLayout(mode_row)
         root.addWidget(mode_card)
@@ -75,6 +85,17 @@ class FeederMappingPage(WorkerPage):
         self.source_picker = FilePicker("NPM Machine Export (.txt/.crb):")
         self.source_picker.browse_requested.connect(self.browse_source)
         source_card.layout.addWidget(self.source_picker)
+        self.reference_picker = FilePicker("Reference Feeder Folder:")
+        self.reference_picker.browse_requested.connect(self.browse_reference_folder)
+        source_card.layout.addWidget(self.reference_picker)
+        self.balancing_label = QLabel("Balancing Part Numbers")
+        self.balancing_label.setObjectName("MutedLabel")
+        self.balancing_input = QPlainTextEdit()
+        self.balancing_input.setPlainText(feeder_mapping_service.default_balancing_part_numbers_text())
+        self.balancing_input.setPlaceholderText("Satu part number per baris untuk komponen yang sengaja dipasang di lebih dari satu feeder")
+        self.balancing_input.setMinimumHeight(92)
+        source_card.layout.addWidget(self.balancing_label)
+        source_card.layout.addWidget(self.balancing_input)
         root.addWidget(source_card)
 
         action_bar = QHBoxLayout()
@@ -137,8 +158,12 @@ class FeederMappingPage(WorkerPage):
             self.clear_btn,
             self.preview_search_input,
             self.source_picker.button,
+            self.reference_picker.button,
+            self.balancing_input,
             self.single_mode_radio,
             self.multiple_mode_radio,
+            self.cm602_mode_radio,
+            self.import_mode_radio,
         )
 
         self._sync_mode_ui()
@@ -151,6 +176,12 @@ class FeederMappingPage(WorkerPage):
     def browse_source(self):
         if self._is_multiple_mode():
             self.browse_multiple_sources()
+            return
+        if self._is_import_mode():
+            self.browse_target_crb()
+            return
+        if self._is_cm602_mode():
+            self.browse_cm602_source()
             return
 
         file_path, _ = QFileDialog.getOpenFileName(
@@ -168,6 +199,49 @@ class FeederMappingPage(WorkerPage):
             self.mapping_model.set_records([])
             self.summary_label.setText("0 ROWS")
             self.status_label.setText("Source selected")
+            self._update_mode_actions()
+
+    def browse_cm602_source(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select CM602 Feeder/Program File",
+            "",
+            "CM602/Text Files (*.txt *.TXT);;All Files (*)",
+        )
+        if file_path:
+            self.source_picker.set_path(file_path)
+            self.source_path = file_path
+            self.multi_source_paths = []
+            self.mapping_result = None
+            self.preview_search_input.clear()
+            self.mapping_model.set_records([])
+            self.summary_label.setText("0 ROWS")
+            self.status_label.setText("CM602 source selected")
+            self._update_mode_actions()
+
+    def browse_target_crb(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Target NPM Program",
+            "",
+            "NPM Program (*.crb *.CRB);;All Files (*)",
+        )
+        if file_path:
+            self.source_picker.set_path(file_path)
+            self.source_path = file_path
+            self.multi_source_paths = []
+            self.mapping_result = None
+            self.preview_search_input.clear()
+            self.mapping_model.set_records([])
+            self.summary_label.setText("Target selected")
+            self.status_label.setText("Target selected")
+            self._update_mode_actions()
+
+    def browse_reference_folder(self):
+        folder_path = QFileDialog.getExistingDirectory(self, "Select Reference Feeder Folder")
+        if folder_path:
+            self.reference_picker.set_path(folder_path)
+            self.status_label.setText("Reference selected")
             self._update_mode_actions()
 
     def browse_multiple_sources(self):
@@ -189,17 +263,19 @@ class FeederMappingPage(WorkerPage):
             self._update_mode_actions()
 
     def preview_mapping(self):
-        if self._is_multiple_mode():
+        if self._is_multiple_mode() or self._is_import_mode():
             QMessageBox.information(self, "Preview Mapping", "Preview table hanya tersedia untuk mode single feeder file.")
             return
 
         source_path = self.source_picker.path()
         if not source_path:
-            QMessageBox.warning(self, "Input belum lengkap", "File export mesin NPM belum dipilih.")
+            source_label = "File feeder/program CM602" if self._is_cm602_mode() else "File export mesin NPM"
+            QMessageBox.warning(self, "Input belum lengkap", f"{source_label} belum dipilih.")
             return
         self.source_path = source_path
+        loader = feeder_mapping_service.load_cm602_feeder_mapping if self._is_cm602_mode() else feeder_mapping_service.load_feeder_mapping
         self.run_worker(
-            lambda path=source_path: feeder_mapping_service.load_feeder_mapping(path),
+            lambda path=source_path, fn=loader: fn(path),
             self._on_mapping_loaded,
             "Loading feeder mapping...",
         )
@@ -227,16 +303,24 @@ class FeederMappingPage(WorkerPage):
         self._update_summary(len(filtered_records), len(records))
 
     def generate_excel(self):
+        if self._is_import_mode():
+            self.generate_npm_import_file()
+            return
         if self._is_multiple_mode():
             self.generate_multiple_excel()
             return
 
         source_path = self.source_picker.path()
         if not source_path:
-            QMessageBox.warning(self, "Input belum lengkap", "File export mesin NPM belum dipilih.")
+            source_label = "File feeder/program CM602" if self._is_cm602_mode() else "File export mesin NPM"
+            QMessageBox.warning(self, "Input belum lengkap", f"{source_label} belum dipilih.")
             return
 
-        suggested_name = feeder_mapping_service.suggest_output_name(source_path)
+        suggested_name = (
+            feeder_mapping_service.suggest_cm602_output_name(source_path)
+            if self._is_cm602_mode()
+            else feeder_mapping_service.suggest_output_name(source_path)
+        )
         output_path, _ = QFileDialog.getSaveFileName(
             self,
             "Save Feeder Mapping Excel",
@@ -254,8 +338,13 @@ class FeederMappingPage(WorkerPage):
             )
             return
 
+        generator = (
+            feeder_mapping_service.generate_cm602_feeder_mapping_excel
+            if self._is_cm602_mode()
+            else feeder_mapping_service.generate_feeder_mapping_excel
+        )
         self.run_worker(
-            lambda src=source_path, out=output_path: feeder_mapping_service.generate_feeder_mapping_excel(src, out),
+            lambda src=source_path, out=output_path, fn=generator: fn(src, out),
             self._on_generate_from_source_done,
             "Generating feeder mapping Excel...",
         )
@@ -281,6 +370,31 @@ class FeederMappingPage(WorkerPage):
             "Generating multiple feeder mapping Excel...",
         )
 
+    def generate_npm_import_file(self):
+        target_path = self.source_picker.path()
+        reference_folder = self.reference_picker.path()
+        if not target_path:
+            QMessageBox.warning(self, "Input belum lengkap", "Target NPM Program belum dipilih.")
+            return
+        if not reference_folder:
+            QMessageBox.warning(self, "Input belum lengkap", "Reference Feeder Folder belum dipilih.")
+            return
+
+        output_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save NPM Feeder Import File",
+            feeder_mapping_service.suggest_npm_import_output_name(target_path),
+            "NPM Program (*.crb)",
+        )
+        if not output_path:
+            return
+
+        self.run_worker(
+            lambda target=target_path, ref=reference_folder, out=output_path, parts=self.balancing_input.toPlainText(): feeder_mapping_service.generate_npm_feeder_import_file(target, ref, out, parts),
+            self._on_generate_npm_import_done,
+            "Generating NPM feeder import file...",
+        )
+
     def _on_generate_from_source_done(self, payload):
         result, output_path = payload
         self._on_mapping_loaded(result)
@@ -303,6 +417,35 @@ class FeederMappingPage(WorkerPage):
             ),
         )
 
+    def _on_generate_npm_import_done(self, result):
+        output_name = Path(result.output_path).name
+        self.status_label.setText(f"Saved: {output_name}")
+        self.status_label.setToolTip(result.output_path)
+        self.summary_label.setText(f"{result.assigned_part_count}/{result.target_part_count} PARTS | {result.assignment_count} FEEDERS")
+
+        extra = []
+        if result.balancing_part_count:
+            extra.append(f"Balancing parts: {result.balancing_part_count}")
+        if result.missing_recommendation_parts:
+            extra.append(f"No reference: {len(result.missing_recommendation_parts)}")
+        if result.missing_location_rows:
+            extra.append(f"Missing location: {len(result.missing_location_rows)}")
+        if result.conflict_rows:
+            extra.append(f"Conflicts: {len(result.conflict_rows)}")
+        extra_text = "\n" + "\n".join(extra) if extra else ""
+
+        QMessageBox.information(
+            self,
+            "Generate NPM Import File",
+            (
+                f"Target: {result.target_file}\n"
+                f"Reference files: {result.reference_count}\n"
+                f"Assigned parts: {result.assigned_part_count}/{result.target_part_count}\n"
+                f"Fixed feeder assignments: {result.assignment_count}{extra_text}\n"
+                f"File: {result.output_path}"
+            ),
+        )
+
     def _on_generate_done(self, output_path):
         output_name = Path(output_path).name
         self.status_label.setText(f"Saved: {output_name}")
@@ -314,9 +457,14 @@ class FeederMappingPage(WorkerPage):
         self.source_path = ""
         self.multi_source_paths = []
         self.source_picker.clear()
+        self.reference_picker.clear()
+        self.balancing_input.setPlainText(feeder_mapping_service.default_balancing_part_numbers_text())
         self.preview_search_input.clear()
         self.mapping_model.set_records([])
-        self.summary_label.setText("0 FILES" if self._is_multiple_mode() else "0 ROWS")
+        if self._is_import_mode():
+            self.summary_label.setText("0 PARTS")
+        else:
+            self.summary_label.setText("0 FILES" if self._is_multiple_mode() else "0 ROWS")
         self.status_label.setText("")
         self.status_label.setToolTip("")
         self._update_mode_actions()
@@ -340,27 +488,54 @@ class FeederMappingPage(WorkerPage):
     def _is_multiple_mode(self):
         return self.multiple_mode_radio.isChecked()
 
+    def _is_cm602_mode(self):
+        return self.cm602_mode_radio.isChecked()
+
+    def _is_import_mode(self):
+        return self.import_mode_radio.isChecked()
+
     def _sync_mode_ui(self):
         is_multiple = self._is_multiple_mode()
-        self.source_picker.label.setText("NPM Machine Exports (.txt/.crb):" if is_multiple else "NPM Machine Export (.txt/.crb):")
-        self.source_picker.button.setText("Browse Files" if is_multiple else "Browse")
+        is_cm602 = self._is_cm602_mode()
+        is_import = self._is_import_mode()
+        if is_import:
+            self.source_picker.label.setText("Target NPM Program (.crb):")
+            self.source_picker.button.setText("Browse")
+        elif is_cm602:
+            self.source_picker.label.setText("CM602 Feeder/Program File:")
+            self.source_picker.button.setText("Browse")
+        else:
+            self.source_picker.label.setText("NPM Machine Exports (.txt/.crb):" if is_multiple else "NPM Machine Export (.txt/.crb):")
+            self.source_picker.button.setText("Browse Files" if is_multiple else "Browse")
+        self.reference_picker.setVisible(is_import)
+        self.balancing_label.setVisible(is_import)
+        self.balancing_input.setVisible(is_import)
         self.mapping_result = None
         self.source_path = ""
         self.multi_source_paths = []
         self.source_picker.clear()
+        self.reference_picker.clear()
         self.preview_search_input.clear()
         self.mapping_model.set_records([])
-        self.summary_label.setText("0 FILES" if is_multiple else "0 ROWS")
+        if is_import:
+            self.summary_label.setText("0 PARTS")
+        else:
+            self.summary_label.setText("0 FILES" if is_multiple else "0 ROWS")
         self.status_label.setText("")
         self.status_label.setToolTip("")
         self._update_mode_actions()
 
     def _update_mode_actions(self):
         is_multiple = self._is_multiple_mode()
-        self.preview_btn.setEnabled(not is_multiple)
-        self.preview_search_input.setEnabled(not is_multiple)
-        self.generate_btn.setText("Generate Workbook" if is_multiple else "Generate Excel")
-        self.generate_btn.setEnabled(bool(self.multi_source_paths) if is_multiple else bool(self.source_picker.path()))
+        is_import = self._is_import_mode()
+        self.preview_btn.setEnabled(not is_multiple and not is_import)
+        self.preview_search_input.setEnabled(not is_multiple and not is_import)
+        if is_import:
+            self.generate_btn.setText("Generate NPM CRB")
+            self.generate_btn.setEnabled(bool(self.source_picker.path()) and bool(self.reference_picker.path()))
+        else:
+            self.generate_btn.setText("Generate Workbook" if is_multiple else "Generate Excel")
+            self.generate_btn.setEnabled(bool(self.multi_source_paths) if is_multiple else bool(self.source_picker.path()))
 
     def _multi_source_display_text(self, file_paths):
         file_names = [Path(path).name for path in file_paths]

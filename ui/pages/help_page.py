@@ -89,16 +89,19 @@ HELP_SECTIONS = [
         "subtitle": "Convert export TXT/CRB dari mesin NPM menjadi Excel feeder mapping.",
         "steps": [
             "Buka Other Tools lalu pilih Feeder Mapping Generator.",
-            "Pilih mode Single Feeder File untuk satu export .txt/.crb, atau Multiple Feeder Files untuk beberapa file.",
-            "Di mode single, klik Preview Mapping untuk mengecek Table, Slot, Position, Location Code, dan Part Number.",
+            "Pilih mode Single Feeder File untuk satu export NPM .txt/.crb, Multiple Feeder Files untuk beberapa file, CM602 untuk file feeder/program CM602, atau Generate NPM Import File untuk membuat .crb feeder setup.",
+            "Di mode single atau CM602, klik Preview Mapping untuk mengecek Table, Slot, Position, Location Code, dan Part Number.",
             "Klik Generate Excel/Workbook lalu pilih lokasi output.",
         ],
         "notes": [
-            "Data diambil dari section PartsData atau PartsDataEx, lalu FeederData dan FixedFeeder.",
+            "Data NPM diambil dari section PartsData atau PartsDataEx, lalu FeederData dan FixedFeeder.",
+            "Data CM602 diambil dari section FeederFix; jika file program CM602 yang dipilih, data dibaca dari StockData dan PartsData.",
             "Feeder kecil dibuat sebagai posisi L/R.",
             "Feeder besar dibuat sebagai Large (2-Rel) atau Extra Large (3-Rel).",
             "Mode multiple membuat satu workbook berisi sheet Summary dan sheet detail terpisah untuk setiap feeder file.",
-            "Summary dibuat simple untuk melihat tiap komponen paling sering terpasang di feeder nomor berapa.",
+            "Summary menampilkan feeder yang paling sering dipakai tiap komponen, jumlah file di feeder itu, dan total file mapping.",
+            "Generate NPM Import File memakai target .crb sebagai template dan hanya mengganti section FixedFeeder.",
+            "Part balancing yang sengaja dipakai di beberapa feeder tetap dipertahankan multi-feeder.",
         ],
     },
     {
