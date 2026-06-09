@@ -214,13 +214,14 @@ HELP_SECTIONS = [
         "subtitle": "Compare NPM, BM, dan BOM dari satu layar.",
         "steps": [
             "Klik Auto-Import Semua File untuk memilih banyak file sekaligus, atau isi picker satu per satu.",
+            "Jika export NPM berbentuk folder, pilih file-file lain di folder yang sama; aplikasi akan mencari .crb NPM di subfolder tersebut.",
             "Pastikan file source kiri dan target kanan sudah terpasang pasangannya.",
             "Klik Start Compare.",
             "Gunakan Filter Status untuk fokus ke NG only, beda data, ADD, REMOVE, atau semua data.",
         ],
         "notes": [
-            "NPM memakai pasangan .crb dan .txt.",
-            "CM602 memakai pasangan file machine CM602 dan program .txt.",
+            "NPM memakai pasangan .crb dan .txt, termasuk .crb yang berada di dalam folder export mesin.",
+            "CM602 memakai pasangan file machine CM602 dan program .txt seperti CM.txt.",
             "BM memakai pasangan .pos dan .txt.",
             "BOM memakai pasangan .tsv/.csv dan TXT BOM target.",
         ],

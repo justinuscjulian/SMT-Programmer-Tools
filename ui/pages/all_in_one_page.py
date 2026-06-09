@@ -160,7 +160,8 @@ class AllInOneComparatorPage(WorkerPage):
         for key, path in paths.items():
             if path and key in self.pickers:
                 self.pickers[key].set_path(path)
-        self.status_label.setText("Auto-import selesai")
+        detected = sum(1 for key in self.pickers if paths.get(key))
+        self.status_label.setText(f"Auto-import selesai ({detected}/{len(self.pickers)} slot)")
 
     def process_compare(self):
         paths = {key: picker.path() for key, picker in self.pickers.items()}

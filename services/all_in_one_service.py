@@ -26,29 +26,110 @@ def classify_bulk_files(files):
         "bom_ori": "",
         "bom_txt": "",
     }
+    scores = {key: 0 for key in paths}
 
-    for file_path in files:
+    for file_path in _expand_bulk_file_candidates(files):
         name = os.path.basename(file_path).upper()
         ext = os.path.splitext(file_path)[1].lower()
+        if _looks_like_cm602_machine_file(file_path):
+            _set_detected_path(paths, scores, "cm602_machine", file_path, 100)
+            continue
+
         if ext == ".crb":
-            paths["npm_crb"] = file_path
+            score = 95 if _looks_like_npm_crb(file_path) else 70
+            _set_detected_path(paths, scores, "npm_crb", file_path, score)
         elif ext == ".pos":
-            paths["bm_pos"] = file_path
+            _set_detected_path(paths, scores, "bm_pos", file_path, 90)
         elif ext in [".tsv", ".csv"]:
-            paths["bom_ori"] = file_path
+            _set_detected_path(paths, scores, "bom_ori", file_path, 80)
         elif ext == ".txt":
             if _looks_like_cm602_machine_file(file_path):
-                paths["cm602_machine"] = file_path
-            elif "CM602" in name and _looks_like_program_txt(file_path):
-                paths["cm602_txt"] = file_path
-            elif "BM" in name:
-                paths["bm_txt"] = file_path
-            elif "NPM" in name:
-                paths["npm_txt"] = file_path
-            elif "____BOM-PG_____" in name:
-                paths["bom_txt"] = file_path
+                _set_detected_path(paths, scores, "cm602_machine", file_path, 100)
+            elif _is_bom_txt_name(name) or _looks_like_bom_txt(file_path):
+                _set_detected_path(paths, scores, "bom_txt", file_path, 90 if _is_bom_txt_name(name) else 55)
+            elif _looks_like_program_txt(file_path):
+                if _is_cm_txt_name(name):
+                    _set_detected_path(paths, scores, "cm602_txt", file_path, 90)
+                elif _is_bm_txt_name(name):
+                    _set_detected_path(paths, scores, "bm_txt", file_path, 90)
+                elif _is_npm_txt_name(name):
+                    _set_detected_path(paths, scores, "npm_txt", file_path, 90)
 
     return paths
+
+
+def _expand_bulk_file_candidates(paths):
+    selected_seen = set()
+    selected_files = []
+    scan_dirs = []
+
+    for raw_path in paths or []:
+        if not raw_path:
+            continue
+        path = os.path.abspath(raw_path)
+        if os.path.isdir(path):
+            scan_dirs.append(path)
+        elif os.path.isfile(path):
+            _append_unique(selected_files, selected_seen, path)
+
+    # Auto-import users often select only visible files from one folder, while
+    # NPM exports can arrive as a folder with the .crb stored one level deeper.
+    has_direct_crb = any(os.path.splitext(path)[1].lower() == ".crb" for path in selected_files)
+    if selected_files and not has_direct_crb:
+        parent_dirs = {os.path.dirname(path) for path in selected_files}
+        scan_dirs.extend(sorted(parent_dirs, key=natural_sort_key))
+
+    seen = set()
+    candidates = []
+    for path in selected_files:
+        _append_unique(candidates, seen, path)
+
+    for folder in sorted(set(scan_dirs), key=natural_sort_key):
+        for root, _, filenames in os.walk(folder):
+            for filename in filenames:
+                candidate = os.path.join(root, filename)
+                ext = os.path.splitext(candidate)[1].lower()
+                if ext in {"", ".crb", ".pos", ".txt", ".tsv", ".csv"}:
+                    _append_unique(candidates, seen, candidate)
+
+    return sorted(candidates, key=lambda item: natural_sort_key(os.path.normcase(item)))
+
+
+def _append_unique(items, seen, path):
+    normalized = os.path.normcase(os.path.abspath(path))
+    if normalized not in seen:
+        seen.add(normalized)
+        items.append(path)
+
+
+def _set_detected_path(paths, scores, key, path, score):
+    current_score = scores.get(key, 0)
+    if not paths.get(key) or score > current_score:
+        paths[key] = path
+        scores[key] = score
+
+
+def _name_tokens(name):
+    stem = os.path.splitext(name.upper())[0]
+    return [token for token in re.split(r"[^A-Z0-9]+", stem) if token]
+
+
+def _is_cm_txt_name(name):
+    tokens = _name_tokens(name)
+    return "CM" in tokens or "CM602" in tokens
+
+
+def _is_bm_txt_name(name):
+    return "BM" in _name_tokens(name)
+
+
+def _is_npm_txt_name(name):
+    return "NPM" in _name_tokens(name)
+
+
+def _is_bom_txt_name(name):
+    tokens = _name_tokens(name)
+    return "BOM" in tokens or "BOM-PG" in name.upper() or "____BOM-PG_____" in name.upper()
 
 
 def parse_txt(path):
@@ -338,6 +419,15 @@ def _looks_like_cm602_machine_file(path):
     return "[BlockData]" in sample and "[PartsData]" in sample
 
 
+def _looks_like_npm_crb(path):
+    try:
+        with open(path, "r", encoding="latin-1", errors="ignore") as handle:
+            sample = handle.read(120000)
+    except Exception:
+        return False
+    return "[PartsData" in sample and "[PositionData" in sample
+
+
 def _looks_like_program_txt(path):
     try:
         with open(path, "r", encoding="latin-1", errors="ignore") as handle:
@@ -348,6 +438,30 @@ def _looks_like_program_txt(path):
     except Exception:
         return False
     return False
+
+
+def _looks_like_bom_txt(path):
+    bom_rows = 0
+    program_rows = 0
+    try:
+        with open(path, "r", encoding="latin-1", errors="ignore") as handle:
+            for line in handle:
+                parts = [part.strip() for part in line.rstrip("\n").split("\t")]
+                if not any(parts):
+                    continue
+                if len(parts) >= 11:
+                    program_rows += 1
+                elif len(parts) >= 2 and _looks_like_ref(parts[0]) and parts[1]:
+                    bom_rows += 1
+                if bom_rows >= 3 or program_rows >= 3:
+                    break
+    except Exception:
+        return False
+    return bom_rows >= 3 and program_rows == 0
+
+
+def _looks_like_ref(value):
+    return bool(re.match(r"^[A-Z]{1,4}\d", str(value).strip().upper()))
 
 
 def filter_results(results, filter_type):
