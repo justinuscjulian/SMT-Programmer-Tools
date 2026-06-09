@@ -1,6 +1,9 @@
 import os
 import re
 
+from services import machine_service
+from utils.sort import natural_sort_key
+
 
 FILTER_NG_ONLY = "NG ONLY (Hiding Match)"
 FILTER_SHOW_ALL = "SHOW ALL"
@@ -16,6 +19,8 @@ def classify_bulk_files(files):
     paths = {
         "npm_crb": "",
         "npm_txt": "",
+        "cm602_machine": "",
+        "cm602_txt": "",
         "bm_pos": "",
         "bm_txt": "",
         "bom_ori": "",
@@ -32,7 +37,11 @@ def classify_bulk_files(files):
         elif ext in [".tsv", ".csv"]:
             paths["bom_ori"] = file_path
         elif ext == ".txt":
-            if "BM" in name:
+            if _looks_like_cm602_machine_file(file_path):
+                paths["cm602_machine"] = file_path
+            elif "CM602" in name and _looks_like_program_txt(file_path):
+                paths["cm602_txt"] = file_path
+            elif "BM" in name:
                 paths["bm_txt"] = file_path
             elif "NPM" in name:
                 paths["npm_txt"] = file_path
@@ -187,6 +196,8 @@ def process_compare(paths):
 
     if paths.get("npm_txt") and paths.get("npm_crb"):
         results.extend(get_rows("NPM", parse_txt(paths["npm_txt"]), parse_crb(paths["npm_crb"])))
+    if paths.get("cm602_txt") and paths.get("cm602_machine"):
+        results.extend(get_machine_service_rows("CM602", paths["cm602_machine"], paths["cm602_txt"], "CM602"))
     if paths.get("bm_txt") and paths.get("bm_pos"):
         results.extend(get_rows("BM", parse_txt(paths["bm_txt"]), parse_pos(paths["bm_pos"])))
     if paths.get("bom_txt") and paths.get("bom_ori"):
@@ -228,6 +239,44 @@ def get_rows(system_name, txt_data, machine_data):
     return rows
 
 
+def get_machine_service_rows(system_name, machine_path, program_path, machine_type):
+    machine_df = machine_service.load_machine_file(machine_path, machine_type)
+    program_df = machine_service.load_program_file(program_path, machine_type)
+    diff_results = machine_service.compare_machine(machine_df, program_df)
+
+    machine_dict = {row["circuit"]: row for _, row in machine_df.iterrows()}
+    program_dict = {row["circuit"]: row for _, row in program_df.iterrows()}
+    all_refs = sorted(set(machine_dict.keys()) | set(program_dict.keys()), key=natural_sort_key)
+    diff_type_by_ref = _machine_diff_type_by_ref(diff_results)
+
+    rows = []
+    for ref in all_refs:
+        if str(ref).strip().lower() in ["1", "2", "ohm", "ohm1", ""]:
+            continue
+
+        machine_row = machine_dict.get(ref)
+        program_row = program_dict.get(ref)
+        if machine_row is not None and program_row is not None:
+            diff_type = diff_type_by_ref.get(ref)
+            status = "MATCH" if diff_type is None else "BEDA DATA"
+            rows.append(
+                _record(
+                    ref,
+                    system_name,
+                    status,
+                    _machine_row_text(machine_row),
+                    _machine_row_text(program_row),
+                    "match" if status == "MATCH" else "error",
+                )
+            )
+        elif program_row is not None:
+            rows.append(_record(ref, system_name, "ADD (Hanya di TXT)", "-", _machine_row_text(program_row), "add"))
+        else:
+            rows.append(_record(ref, system_name, "REMOVE (Hanya di Mesin)", _machine_row_text(machine_row), "-", "remove"))
+
+    return rows
+
+
 def get_bom_rows(txt_data, ori_data):
     all_refs = sorted(list(set(txt_data.keys()) | set(ori_data.keys())))
     rows = []
@@ -248,6 +297,57 @@ def get_bom_rows(txt_data, ori_data):
         else:
             rows.append(_record(ref, "BOM", "REMOVE (Hanya di Ori)", ori_data[ref], "-", "remove"))
     return rows
+
+
+def _machine_diff_type_by_ref(diff_results):
+    output = {}
+    for diff in diff_results:
+        ref = diff[0]
+        diff_type = diff[4]
+        current = output.get(ref)
+        if current == "CNG":
+            continue
+        if diff_type == "CNG" or current is None:
+            output[ref] = diff_type
+    return output
+
+
+def _machine_row_text(row):
+    if row is None:
+        return "-"
+    return (
+        f"{row.get('parts', '')} | "
+        f"{_format_float(row.get('x', ''))}/{_format_float(row.get('y', ''))} | "
+        f"{_format_float(row.get('angle', ''))}"
+    )
+
+
+def _format_float(value):
+    try:
+        return f"{float(value):.3f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _looks_like_cm602_machine_file(path):
+    try:
+        with open(path, "r", encoding="latin-1", errors="ignore") as handle:
+            sample = handle.read(120000)
+    except Exception:
+        return False
+    return "[BlockData]" in sample and "[PartsData]" in sample
+
+
+def _looks_like_program_txt(path):
+    try:
+        with open(path, "r", encoding="latin-1", errors="ignore") as handle:
+            for line in handle:
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) >= 11:
+                    return True
+    except Exception:
+        return False
+    return False
 
 
 def filter_results(results, filter_type):

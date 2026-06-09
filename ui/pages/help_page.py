@@ -220,6 +220,7 @@ HELP_SECTIONS = [
         ],
         "notes": [
             "NPM memakai pasangan .crb dan .txt.",
+            "CM602 memakai pasangan file machine CM602 dan program .txt.",
             "BM memakai pasangan .pos dan .txt.",
             "BOM memakai pasangan .tsv/.csv dan TXT BOM target.",
         ],

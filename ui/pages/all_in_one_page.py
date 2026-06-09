@@ -124,6 +124,7 @@ class AllInOneComparatorPage(WorkerPage):
         title.setObjectName("SectionTitle")
         card.layout.addWidget(title)
         self._add_picker(card, "npm_crb", "NPM (.crb)")
+        self._add_picker(card, "cm602_machine", "CM602 (Machine)")
         self._add_picker(card, "bm_pos", "BM (.pos)")
         self._add_picker(card, "bom_ori", "BOM (.tsv/.csv)")
         return card
@@ -134,6 +135,7 @@ class AllInOneComparatorPage(WorkerPage):
         title.setObjectName("SectionTitle")
         card.layout.addWidget(title)
         self._add_picker(card, "npm_txt", "NPM (.txt)")
+        self._add_picker(card, "cm602_txt", "CM602 (.txt)")
         self._add_picker(card, "bm_txt", "BM (.txt)")
         self._add_picker(card, "bom_txt", "BOM (.txt)")
         return card
