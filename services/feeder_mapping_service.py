@@ -1324,6 +1324,25 @@ def _cm602_record_sort_key(record):
     )
 
 
+def _location_sort_key(location_code):
+    text = str(location_code or "").strip()
+    match = re.match(r"^\[(\d+)\](\d+)(?:-\d+)?([A-Za-z]+)?$", text)
+    if not match:
+        return (999999, 999999, 999999, natural_sort_key(text))
+
+    table = int(match.group(1))
+    slot = int(match.group(2))
+    side = str(match.group(3) or "").upper()
+    side_order = {
+        "": 0,
+        "L": 0,
+        "A": 0,
+        "R": 1,
+        "B": 1,
+    }.get(side, 2 + (CM602_FEEDER_SIDES.find(side) if side in CM602_FEEDER_SIDES else 99))
+    return (table, slot, side_order, natural_sort_key(text))
+
+
 def _record(table, slot, position, location_code, part_number, feeder_id=""):
     return {
         "table": table,
@@ -1480,20 +1499,25 @@ def _resolve_summary_location_conflicts(summary_records):
                 occupied_locations[candidate["location"]] = row["part_number"]
 
         selected_locations = {candidate["location"] for candidate in selected_candidates}
+        selected_location_text = ", ".join(sorted(selected_locations, key=_location_sort_key))
+        if row.get("balancing_locations"):
+            notes.append(f"BALANCING SLOTS: {selected_location_text}.")
         other_candidates = [candidate for candidate in candidates if candidate["location"] not in selected_locations]
-        resolved_records.append(
-            {
-                "part_number": row["part_number"],
-                "top_location": ", ".join(candidate["location"] for candidate in selected_candidates),
-                "top_count": " / ".join(str(candidate["file_count"]) for candidate in selected_candidates),
-                "sort_count": max(candidate["file_count"] for candidate in selected_candidates),
-                "file_count": row["file_count"],
-                "total_count": row["total_count"],
-                "other_locations": ", ".join(f"{candidate['location']} ({candidate['file_count']} file)" for candidate in other_candidates),
-                "notes": "; ".join(notes),
-                "_selected_locations": sorted(selected_locations, key=natural_sort_key),
-            }
-        )
+        other_locations = ", ".join(f"{candidate['location']} ({candidate['file_count']} file)" for candidate in other_candidates)
+        for candidate in sorted(selected_candidates, key=lambda item: _location_sort_key(item["location"])):
+            resolved_records.append(
+                {
+                    "part_number": row["part_number"],
+                    "top_location": candidate["location"],
+                    "top_count": str(candidate["file_count"]),
+                    "sort_count": candidate["file_count"],
+                    "file_count": row["file_count"],
+                    "total_count": row["total_count"],
+                    "other_locations": other_locations,
+                    "notes": "; ".join(notes),
+                    "_selected_locations": [candidate["location"]],
+                }
+            )
 
     records_by_location = defaultdict(list)
     for record in resolved_records:
@@ -1511,8 +1535,8 @@ def _resolve_summary_location_conflicts(summary_records):
 
     resolved_records.sort(
         key=lambda row: (
+            _location_sort_key(row["top_location"]),
             -row["sort_count"],
-            -row["file_count"],
             natural_sort_key(row["part_number"]),
         )
     )
