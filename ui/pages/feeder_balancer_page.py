@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QSpinBox,
     QTableView,
     QTabWidget,
     QVBoxLayout,
@@ -19,6 +20,8 @@ from PySide6.QtWidgets import (
 from models.table_model import ColumnSpec, RecordTableModel
 from services.feeder_balancer_service import (
     BALANCED_COLUMNS,
+    DEFAULT_DUPLICATE_MIN_INSERT,
+    DEFAULT_MULTI_COPY_MIN_INSERT,
     DUPLICATE_PLAN_COLUMNS,
     FIELD_LABELS,
     MACHINE_MODES,
@@ -89,6 +92,27 @@ class FeederBalancerPage(WorkerPage):
         mode_row.addStretch(1)
         source_card.layout.addLayout(mode_row)
 
+        duplicate_rule_row = QHBoxLayout()
+        duplicate_min_label = QLabel("Min Duplicate Insert:")
+        duplicate_min_label.setMinimumWidth(150)
+        self.duplicate_min_spin = QSpinBox()
+        self.duplicate_min_spin.setRange(0, 999999)
+        self.duplicate_min_spin.setValue(int(DEFAULT_DUPLICATE_MIN_INSERT))
+        self.duplicate_min_spin.valueChanged.connect(self._on_mapping_changed)
+        multi_copy_label = QLabel("Multi-copy Insert:")
+        multi_copy_label.setMinimumWidth(130)
+        self.multi_copy_spin = QSpinBox()
+        self.multi_copy_spin.setRange(0, 999999)
+        self.multi_copy_spin.setValue(int(DEFAULT_MULTI_COPY_MIN_INSERT))
+        self.multi_copy_spin.valueChanged.connect(self._on_mapping_changed)
+        duplicate_rule_row.addWidget(duplicate_min_label)
+        duplicate_rule_row.addWidget(self.duplicate_min_spin)
+        duplicate_rule_row.addSpacing(16)
+        duplicate_rule_row.addWidget(multi_copy_label)
+        duplicate_rule_row.addWidget(self.multi_copy_spin)
+        duplicate_rule_row.addStretch(1)
+        source_card.layout.addLayout(duplicate_rule_row)
+
         self.profile_label = QLabel("NPM Custom Profile (optional constraints):")
         self.profile_label.setObjectName("MutedLabel")
         self.profile_input = QPlainTextEdit()
@@ -96,6 +120,8 @@ class FeederBalancerPage(WorkerPage):
             "Optional key=value, one per line.\n"
             "Example:\n"
             "max_copy_per_part=3\n"
+            "duplicate_min_insert=10\n"
+            "multi_copy_min_insert=25\n"
             "reserved_slots=[1]1L, [1]2L"
         )
         self.profile_input.setMaximumHeight(92)
@@ -174,6 +200,8 @@ class FeederBalancerPage(WorkerPage):
             self.generate_btn,
             self.export_btn,
             self.clear_btn,
+            self.duplicate_min_spin,
+            self.multi_copy_spin,
             *self.mapping_combos.values(),
         )
         self._sync_profile_ui()
@@ -428,6 +456,8 @@ class FeederBalancerPage(WorkerPage):
         self.status_label.setToolTip("")
         self.summary_label.setText("0 ZONES | 0 PARTS")
         self.profile_input.clear()
+        self.duplicate_min_spin.setValue(int(DEFAULT_DUPLICATE_MIN_INSERT))
+        self.multi_copy_spin.setValue(int(DEFAULT_MULTI_COPY_MIN_INSERT))
         for combo in self.mapping_combos.values():
             combo.blockSignals(True)
             combo.clear()
@@ -480,6 +510,8 @@ class FeederBalancerPage(WorkerPage):
             machine_mode=self.machine_combo.currentText(),
             column_mapping=self._current_mapping(),
             profile_text=self.profile_input.toPlainText() if self.machine_combo.currentText() == MACHINE_NPM_CUSTOM else "",
+            duplicate_min_insert=self.duplicate_min_spin.value(),
+            multi_copy_min_insert=self.multi_copy_spin.value(),
         )
 
     def _current_mapping(self):

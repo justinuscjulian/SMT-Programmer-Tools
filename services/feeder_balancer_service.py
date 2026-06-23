@@ -19,6 +19,8 @@ MACHINE_GENERIC = "Generic"
 MACHINE_CM602 = "CM602"
 MACHINE_NPM_CUSTOM = "NPM Custom"
 MACHINE_MODES = [MACHINE_GENERIC, MACHINE_CM602, MACHINE_NPM_CUSTOM]
+DEFAULT_DUPLICATE_MIN_INSERT = 10.0
+DEFAULT_MULTI_COPY_MIN_INSERT = 25.0
 
 REQUIRED_FIELDS = ["slot", "part_number", "component_insert"]
 OPTIONAL_FIELDS = [
@@ -91,6 +93,8 @@ class FeederBalancerConfig:
     machine_mode: str = MACHINE_GENERIC
     column_mapping: dict = field(default_factory=dict)
     profile_text: str = ""
+    duplicate_min_insert: float = DEFAULT_DUPLICATE_MIN_INSERT
+    multi_copy_min_insert: float = DEFAULT_MULTI_COPY_MIN_INSERT
 
 
 @dataclass
@@ -334,6 +338,16 @@ def _prepare_balance_input(config: FeederBalancerConfig, require_parts=True):
     table = _load_source_table(config.source_path)
     mapping = _resolve_mapping(table.headers, config.column_mapping)
     profile = _parse_profile_text(config.profile_text)
+    profile["duplicate_min_insert"] = _positive_float(
+        profile.get("duplicate_min_insert"),
+        _positive_float(config.duplicate_min_insert, DEFAULT_DUPLICATE_MIN_INSERT),
+    )
+    profile["multi_copy_min_insert"] = _positive_float(
+        profile.get("multi_copy_min_insert"),
+        _positive_float(config.multi_copy_min_insert, DEFAULT_MULTI_COPY_MIN_INSERT),
+    )
+    if profile["multi_copy_min_insert"] < profile["duplicate_min_insert"]:
+        profile["multi_copy_min_insert"] = profile["duplicate_min_insert"]
     warnings = []
     slots = OrderedDict()
     parts = OrderedDict()
@@ -480,29 +494,34 @@ def _build_assignments(balance_input: _BalanceInput):
     duplicate_slots_to_use = max(0, available_capacity - len(assignments))
     max_copy = int(balance_input.profile.get("max_copy_per_part") or len(zone_order) or 1)
     max_copy = max(1, min(max_copy, len(zone_order) or 1))
+    duplicate_min_insert = float(balance_input.profile.get("duplicate_min_insert") or DEFAULT_DUPLICATE_MIN_INSERT)
+    multi_copy_min_insert = float(balance_input.profile.get("multi_copy_min_insert") or DEFAULT_MULTI_COPY_MIN_INSERT)
     target = _target_insert(parts, zone_order)
 
     while duplicate_slots_to_use > 0:
-        added = False
-        for part in _sorted_parts(parts):
-            copy_count = _copy_count(assignments, part.key)
-            if copy_count >= max_copy:
-                continue
-            candidate_zones = _candidate_duplicate_zones(part.key, assignments, zone_order, zone_caps)
-            if not candidate_zones:
-                continue
-            zone = _best_duplicate_zone(part.key, candidate_zones, assignments, parts, zone_order, target)
-            assignments.append(_Assignment(next_id, part.key, zone))
-            next_id += 1
-            duplicate_slots_to_use -= 1
-            added = True
-            if duplicate_slots_to_use <= 0:
-                break
-        if not added:
+        candidate = _best_duplicate_candidate(
+            assignments,
+            parts,
+            zone_order,
+            zone_caps,
+            target,
+            max_copy,
+            duplicate_min_insert,
+            multi_copy_min_insert,
+            next_id,
+        )
+        if candidate is None:
             warnings.append(
-                f"{duplicate_slots_to_use} spare slot tidak bisa dipakai untuk duplicate karena constraint zone/copy."
+                (
+                    f"{duplicate_slots_to_use} spare slot tidak dipakai untuk duplicate. "
+                    f"Rule aktif: duplicate hanya untuk COMPONENT INSERT >= {_format_threshold(duplicate_min_insert)}, "
+                    f"dan copy ke-3 dst hanya untuk insert >= {_format_threshold(multi_copy_min_insert)}."
+                )
             )
             break
+        assignments.append(_Assignment(next_id, candidate["part_key"], candidate["zone"]))
+        next_id += 1
+        duplicate_slots_to_use -= 1
 
     improved = _local_improve(assignments, parts, zone_order, zone_caps, target)
     if improved != assignments:
@@ -663,6 +682,8 @@ def _build_summary(balance_input, assignments, total_slot_capacity, unique_part_
             ("duplicate_feeder_count", duplicate_feeder_count),
             ("total_unique_component_insert", _round_number(sum(part.insert for part in parts.values()), 3)),
             ("target_effective_insert_per_zone", _round_number(target, 3)),
+            ("duplicate_min_insert", _round_number(balance_input.profile.get("duplicate_min_insert"), 3)),
+            ("multi_copy_min_insert", _round_number(balance_input.profile.get("multi_copy_min_insert"), 3)),
             ("max_deviation", _round_number(max_deviation, 3)),
             ("optimization_status", "DETERMINISTIC_HEURISTIC"),
             ("parsing_warnings", len(balance_input.warnings)),
@@ -685,7 +706,12 @@ def _build_duplicate_plan(balance_input, assignments):
         if copies <= 1:
             continue
         fixed_count = len(_valid_fixed_slot_keys(part, balance_input.slots))
-        reason = "Fixed/reserved slot constraint" if fixed_count > 1 else "High COMPONENT INSERT prioritized for spare slot"
+        if fixed_count > 1:
+            reason = "Fixed/reserved slot constraint"
+        elif part.insert >= float(balance_input.profile.get("multi_copy_min_insert") or DEFAULT_MULTI_COPY_MIN_INSERT):
+            reason = "High insert eligible for multi-zone split"
+        else:
+            reason = "Insert eligible for duplicate feeder"
         rows.append(
             {
                 "part_number": part.part_number,
@@ -1040,6 +1066,56 @@ def _candidate_duplicate_zones(part_key, assignments, zone_order, zone_caps):
         for zone in zone_order
         if zone not in used_zones and counts[zone] < zone_caps.get(zone, 0)
     ]
+
+
+def _best_duplicate_candidate(
+    assignments,
+    parts,
+    zone_order,
+    zone_caps,
+    target,
+    max_copy,
+    duplicate_min_insert,
+    multi_copy_min_insert,
+    next_id,
+):
+    current_score = _objective(assignments, parts, zone_order, target)
+    best_candidate = None
+    best_rank = None
+
+    for part in _sorted_parts(parts):
+        copy_count = _copy_count(assignments, part.key)
+        copy_limit = _duplicate_copy_limit(part, max_copy, duplicate_min_insert, multi_copy_min_insert)
+        if copy_count >= copy_limit:
+            continue
+
+        candidate_zones = _candidate_duplicate_zones(part.key, assignments, zone_order, zone_caps)
+        for zone in candidate_zones:
+            candidate_assignments = list(assignments) + [_Assignment(next_id, part.key, zone)]
+            score = _objective(candidate_assignments, parts, zone_order, target)
+            if score >= current_score:
+                continue
+
+            rank = (
+                score,
+                -part.insert,
+                copy_count,
+                natural_sort_key(part.part_number),
+                natural_sort_key(zone),
+            )
+            if best_rank is None or rank < best_rank:
+                best_rank = rank
+                best_candidate = {"part_key": part.key, "zone": zone}
+
+    return best_candidate
+
+
+def _duplicate_copy_limit(part, max_copy, duplicate_min_insert, multi_copy_min_insert):
+    if part.insert < duplicate_min_insert:
+        return 1
+    if part.insert >= multi_copy_min_insert:
+        return max_copy
+    return min(2, max_copy)
 
 
 def _best_duplicate_zone(part_key, candidate_zones, assignments, parts, zone_order, target):
@@ -1425,6 +1501,10 @@ def _parse_profile_text(profile_text):
             number = _safe_int(value)
             if number > 0:
                 profile["max_copy_per_part"] = number
+        elif normalized_key in {"duplicatemininsert", "minduplicateinsert"}:
+            profile["duplicate_min_insert"] = _positive_float(value, DEFAULT_DUPLICATE_MIN_INSERT)
+        elif normalized_key in {"multicopymininsert", "highinsertthreshold", "highsplitinsert"}:
+            profile["multi_copy_min_insert"] = _positive_float(value, DEFAULT_MULTI_COPY_MIN_INSERT)
         elif normalized_key == "reservedslots":
             profile["reserved_slot_keys"].update(_slot_key(item) for item in re.split(r"[,;|]+", value) if _slot_key(item))
     return profile
@@ -1545,6 +1625,13 @@ def _parse_number(value):
         return None
 
 
+def _positive_float(value, default):
+    number = _parse_number(value)
+    if number is None or number < 0:
+        return float(default)
+    return float(number)
+
+
 def _same_number(left, right):
     return abs(float(left) - float(right)) < 0.000001
 
@@ -1594,6 +1681,10 @@ def _round_number(value, digits=3):
     if abs(number - round(number)) < 0.0000001:
         return int(round(number))
     return round(number, digits)
+
+
+def _format_threshold(value):
+    return str(_round_number(value, 3))
 
 
 def _join_limited(values, limit):
