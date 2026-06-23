@@ -7,6 +7,8 @@ from ui.pages.average_insert_component_page import AverageInsertComponentPage
 from ui.pages.component_usage_finder_page import ComponentUsageFinderPage
 from ui.pages.component_usage_plan_page import ComponentUsagePlanPage
 from ui.pages.common_feeder_reuse_page import CommonFeederReusePage
+from ui.pages.crb_program_collector_page import CrbProgramCollectorPage
+from ui.pages.feeder_balancer_page import FeederBalancerPage
 from ui.pages.feeder_mapping_page import FeederMappingPage
 from ui.pages.insert_point_page import InsertPointPage
 from ui.pages.model_feeder_group_page import ModelFeederGroupPage
@@ -47,6 +49,8 @@ class OtherToolsPage(QWidget):
         self.stack.addWidget(self._build_component_usage_plan_page())
         self.stack.addWidget(self._build_common_feeder_reuse_page())
         self.stack.addWidget(self._build_model_feeder_group_page())
+        self.stack.addWidget(self._build_crb_program_collector_page())
+        self.stack.addWidget(self._build_feeder_balancer_page())
         root.addWidget(self.stack, 1)
         self._refresh_icons()
 
@@ -102,6 +106,13 @@ class OtherToolsPage(QWidget):
                 "Compare setup feeder antara 2 export NPM",
                 "feeder_compare",
                 self.open_npm_feeder_compare,
+            ),
+            (
+                "feeder_balancer_button",
+                "Feeder Balancer",
+                "Balance fixed feeder arrangement dari Excel/CSV",
+                "feeder_compare",
+                self.open_feeder_balancer,
             ),
             (
                 "all_in_one_button",
@@ -165,6 +176,13 @@ class OtherToolsPage(QWidget):
                 "Kelompokkan PCB yang component usage-nya mirip",
                 "model_group",
                 self.open_model_feeder_group,
+            ),
+            (
+                "crb_program_collector_button",
+                "CRB Program Collector",
+                "Cari dan copy program .crb by PCB/line",
+                "feeder_mapping",
+                self.open_crb_program_collector,
             ),
         ]
         for index, (attr_name, title, subtitle, icon_name, callback) in enumerate(tools):
@@ -439,6 +457,46 @@ class OtherToolsPage(QWidget):
         layout.addWidget(self.model_feeder_group_page, 1)
         return page
 
+    def _build_crb_program_collector_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        top = QHBoxLayout()
+        self.back_crb_program_collector_button = QPushButton("Back to Tools")
+        self.back_crb_program_collector_button.clicked.connect(self.open_menu)
+        title = QLabel("CRB Program Finder/Collector")
+        title.setObjectName("TitleLabel")
+        top.addWidget(self.back_crb_program_collector_button)
+        top.addWidget(title)
+        top.addStretch(1)
+        layout.addLayout(top)
+
+        self.crb_program_collector_page = CrbProgramCollectorPage(self.thread_pool, self.theme_manager)
+        layout.addWidget(self.crb_program_collector_page, 1)
+        return page
+
+    def _build_feeder_balancer_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        top = QHBoxLayout()
+        self.back_feeder_balancer_button = QPushButton("Back to Tools")
+        self.back_feeder_balancer_button.clicked.connect(self.open_menu)
+        title = QLabel("Feeder Balancer")
+        title.setObjectName("TitleLabel")
+        top.addWidget(self.back_feeder_balancer_button)
+        top.addWidget(title)
+        top.addStretch(1)
+        layout.addLayout(top)
+
+        self.feeder_balancer_page = FeederBalancerPage(self.thread_pool, self.theme_manager)
+        layout.addWidget(self.feeder_balancer_page, 1)
+        return page
+
     def _create_tool_button(self, title, subtitle, icon_name, callback):
         button = QToolButton()
         button.setObjectName("ToolMenuButton")
@@ -485,6 +543,12 @@ class OtherToolsPage(QWidget):
     def open_model_feeder_group(self):
         self.stack.setCurrentIndex(13)
 
+    def open_crb_program_collector(self):
+        self.stack.setCurrentIndex(14)
+
+    def open_feeder_balancer(self):
+        self.stack.setCurrentIndex(15)
+
     def open_worksheet_bom(self):
         self.stack.setCurrentIndex(2)
 
@@ -524,3 +588,7 @@ class OtherToolsPage(QWidget):
             self.back_common_feeder_reuse_button.setIcon(make_icon("arrow_left", theme["text"]))
         if hasattr(self, "back_model_feeder_group_button"):
             self.back_model_feeder_group_button.setIcon(make_icon("arrow_left", theme["text"]))
+        if hasattr(self, "back_crb_program_collector_button"):
+            self.back_crb_program_collector_button.setIcon(make_icon("arrow_left", theme["text"]))
+        if hasattr(self, "back_feeder_balancer_button"):
+            self.back_feeder_balancer_button.setIcon(make_icon("arrow_left", theme["text"]))

@@ -59,20 +59,28 @@ class FeederMappingPage(WorkerPage):
         self.single_mode_radio = QRadioButton("Single Feeder File")
         self.multiple_mode_radio = QRadioButton("Multiple Feeder Files")
         self.cm602_mode_radio = QRadioButton("CM602")
-        self.import_mode_radio = QRadioButton("Generate NPM Import File")
+        self.cm602_program_cm_txt_mode_radio = QRadioButton("CM602 Program File Converter to CM.txt")
+        self.cm602_feeder_fix_mode_radio = QRadioButton("Excel to CM602 FeederFix TXT")
+        self.import_mode_radio = QRadioButton("Excel to NPM Feeder TXT")
         self.single_mode_radio.setChecked(True)
         self.mode_group = QButtonGroup(self)
         self.mode_group.addButton(self.single_mode_radio)
         self.mode_group.addButton(self.multiple_mode_radio)
         self.mode_group.addButton(self.cm602_mode_radio)
+        self.mode_group.addButton(self.cm602_program_cm_txt_mode_radio)
+        self.mode_group.addButton(self.cm602_feeder_fix_mode_radio)
         self.mode_group.addButton(self.import_mode_radio)
         self.single_mode_radio.toggled.connect(self._sync_mode_ui)
         self.multiple_mode_radio.toggled.connect(self._sync_mode_ui)
         self.cm602_mode_radio.toggled.connect(self._sync_mode_ui)
+        self.cm602_program_cm_txt_mode_radio.toggled.connect(self._sync_mode_ui)
+        self.cm602_feeder_fix_mode_radio.toggled.connect(self._sync_mode_ui)
         self.import_mode_radio.toggled.connect(self._sync_mode_ui)
         mode_row.addWidget(self.single_mode_radio)
         mode_row.addWidget(self.multiple_mode_radio)
         mode_row.addWidget(self.cm602_mode_radio)
+        mode_row.addWidget(self.cm602_program_cm_txt_mode_radio)
+        mode_row.addWidget(self.cm602_feeder_fix_mode_radio)
         mode_row.addWidget(self.import_mode_radio)
         mode_row.addStretch(1)
         mode_card.layout.addLayout(mode_row)
@@ -88,11 +96,11 @@ class FeederMappingPage(WorkerPage):
         self.reference_picker = FilePicker("Reference Feeder Folder:")
         self.reference_picker.browse_requested.connect(self.browse_reference_folder)
         source_card.layout.addWidget(self.reference_picker)
-        self.balancing_label = QLabel("Balancing Part Numbers")
+        self.balancing_label = QLabel("Extra Balancing Part Numbers (Optional)")
         self.balancing_label.setObjectName("MutedLabel")
         self.balancing_input = QPlainTextEdit()
         self.balancing_input.setPlainText(feeder_mapping_service.default_balancing_part_numbers_text())
-        self.balancing_input.setPlaceholderText("Satu part number per baris untuk komponen yang sengaja dipasang di lebih dari satu feeder")
+        self.balancing_input.setPlaceholderText("Optional: tambah part number yang mau dipaksa tetap multi-feeder. Auto-detect tetap jalan dari reference folder.")
         self.balancing_input.setMinimumHeight(92)
         source_card.layout.addWidget(self.balancing_label)
         source_card.layout.addWidget(self.balancing_input)
@@ -163,6 +171,8 @@ class FeederMappingPage(WorkerPage):
             self.single_mode_radio,
             self.multiple_mode_radio,
             self.cm602_mode_radio,
+            self.cm602_program_cm_txt_mode_radio,
+            self.cm602_feeder_fix_mode_radio,
             self.import_mode_radio,
         )
 
@@ -178,7 +188,13 @@ class FeederMappingPage(WorkerPage):
             self.browse_multiple_sources()
             return
         if self._is_import_mode():
-            self.browse_target_crb()
+            self.browse_mapping_excel()
+            return
+        if self._is_cm602_feeder_fix_mode():
+            self.browse_mapping_excel()
+            return
+        if self._is_cm602_program_cm_txt_mode():
+            self.browse_cm602_program_source()
             return
         if self._is_cm602_mode():
             self.browse_cm602_source()
@@ -219,12 +235,12 @@ class FeederMappingPage(WorkerPage):
             self.status_label.setText("CM602 source selected")
             self._update_mode_actions()
 
-    def browse_target_crb(self):
+    def browse_cm602_program_source(self):
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Select Target NPM Program",
+            "Select CM602 Program File",
             "",
-            "NPM Program (*.crb *.CRB);;All Files (*)",
+            "CM602 Program Files (*);;Text Files (*.txt *.TXT)",
         )
         if file_path:
             self.source_picker.set_path(file_path)
@@ -233,15 +249,49 @@ class FeederMappingPage(WorkerPage):
             self.mapping_result = None
             self.preview_search_input.clear()
             self.mapping_model.set_records([])
-            self.summary_label.setText("Target selected")
-            self.status_label.setText("Target selected")
+            self.summary_label.setText("Source selected")
+            self.status_label.setText("CM602 program selected")
+            self._update_mode_actions()
+
+    def browse_mapping_excel(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Feeder Mapping Excel",
+            "",
+            "Excel Workbook (*.xlsx *.XLSX *.xlsm *.XLSM);;All Files (*)",
+        )
+        if file_path:
+            self.source_picker.set_path(file_path)
+            self.source_path = file_path
+            self.multi_source_paths = []
+            self.mapping_result = None
+            self.preview_search_input.clear()
+            self.mapping_model.set_records([])
+            self.summary_label.setText("Mapping selected")
+            self.status_label.setText("Mapping selected")
             self._update_mode_actions()
 
     def browse_reference_folder(self):
+        if self._is_import_mode():
+            self.browse_template_npm_program()
+            return
+
         folder_path = QFileDialog.getExistingDirectory(self, "Select Reference Feeder Folder")
         if folder_path:
             self.reference_picker.set_path(folder_path)
             self.status_label.setText("Reference selected")
+            self._update_mode_actions()
+
+    def browse_template_npm_program(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select NPM Program Template",
+            "",
+            "NPM Program (*.crb *.CRB *.txt *.TXT);;Text/CRB Files (*.txt *.TXT *.crb *.CRB);;All Files (*)",
+        )
+        if file_path:
+            self.reference_picker.set_path(file_path)
+            self.status_label.setText("Template selected")
             self._update_mode_actions()
 
     def browse_multiple_sources(self):
@@ -263,7 +313,7 @@ class FeederMappingPage(WorkerPage):
             self._update_mode_actions()
 
     def preview_mapping(self):
-        if self._is_multiple_mode() or self._is_import_mode():
+        if self._is_multiple_mode() or self._is_import_mode() or self._is_cm602_program_cm_txt_mode() or self._is_cm602_feeder_fix_mode():
             QMessageBox.information(self, "Preview Mapping", "Preview table hanya tersedia untuk mode single feeder file.")
             return
 
@@ -305,6 +355,12 @@ class FeederMappingPage(WorkerPage):
     def generate_excel(self):
         if self._is_import_mode():
             self.generate_npm_import_file()
+            return
+        if self._is_cm602_program_cm_txt_mode():
+            self.generate_cm602_program_cm_txt()
+            return
+        if self._is_cm602_feeder_fix_mode():
+            self.generate_cm602_feeder_fix_file()
             return
         if self._is_multiple_mode():
             self.generate_multiple_excel()
@@ -370,29 +426,71 @@ class FeederMappingPage(WorkerPage):
             "Generating multiple feeder mapping Excel...",
         )
 
-    def generate_npm_import_file(self):
-        target_path = self.source_picker.path()
-        reference_folder = self.reference_picker.path()
-        if not target_path:
-            QMessageBox.warning(self, "Input belum lengkap", "Target NPM Program belum dipilih.")
-            return
-        if not reference_folder:
-            QMessageBox.warning(self, "Input belum lengkap", "Reference Feeder Folder belum dipilih.")
+    def generate_cm602_program_cm_txt(self):
+        source_path = self.source_picker.path()
+        if not source_path:
+            QMessageBox.warning(self, "Input belum lengkap", "File program CM602 belum dipilih.")
             return
 
         output_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Save NPM Feeder Import File",
-            feeder_mapping_service.suggest_npm_import_output_name(target_path),
-            "NPM Program (*.crb)",
+            "Save CM.txt",
+            feeder_mapping_service.suggest_cm602_program_cm_txt_output_name(source_path),
+            "Text File (*.txt)",
         )
         if not output_path:
             return
 
         self.run_worker(
-            lambda target=target_path, ref=reference_folder, out=output_path, parts=self.balancing_input.toPlainText(): feeder_mapping_service.generate_npm_feeder_import_file(target, ref, out, parts),
+            lambda src=source_path, out=output_path: feeder_mapping_service.generate_cm602_program_cm_txt(src, out),
+            self._on_generate_cm602_program_cm_txt_done,
+            "Converting CM602 program file to CM.txt...",
+        )
+
+    def generate_cm602_feeder_fix_file(self):
+        mapping_path = self.source_picker.path()
+        if not mapping_path:
+            QMessageBox.warning(self, "Input belum lengkap", "Excel CM602 feeder mapping belum dipilih.")
+            return
+
+        output_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save CM602 FeederFix TXT",
+            feeder_mapping_service.suggest_cm602_feeder_fix_output_name(mapping_path),
+            "Text File (*.txt)",
+        )
+        if not output_path:
+            return
+
+        self.run_worker(
+            lambda mapping=mapping_path, out=output_path: feeder_mapping_service.generate_cm602_feeder_fix_import_file(mapping, out),
+            self._on_generate_cm602_feeder_fix_done,
+            "Converting Excel to CM602 FeederFix TXT...",
+        )
+
+    def generate_npm_import_file(self):
+        mapping_path = self.source_picker.path()
+        template_path = self.reference_picker.path()
+        if not mapping_path:
+            QMessageBox.warning(self, "Input belum lengkap", "Feeder Mapping Excel belum dipilih.")
+            return
+        if not template_path:
+            QMessageBox.warning(self, "Input belum lengkap", "Template Program NPM belum dipilih.")
+            return
+
+        output_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save NPM Feeder Import TXT",
+            feeder_mapping_service.suggest_npm_import_output_name(mapping_path),
+            "Text File (*.txt)",
+        )
+        if not output_path:
+            return
+
+        self.run_worker(
+            lambda mapping=mapping_path, template=template_path, out=output_path: feeder_mapping_service.generate_npm_feeder_import_file(mapping, template, out),
             self._on_generate_npm_import_done,
-            "Generating NPM feeder import file...",
+            "Converting feeder mapping to NPM TXT...",
         )
 
     def _on_generate_from_source_done(self, payload):
@@ -421,27 +519,74 @@ class FeederMappingPage(WorkerPage):
         output_name = Path(result.output_path).name
         self.status_label.setText(f"Saved: {output_name}")
         self.status_label.setToolTip(result.output_path)
-        self.summary_label.setText(f"{result.assigned_part_count}/{result.target_part_count} PARTS | {result.assignment_count} FEEDERS")
+        self.summary_label.setText(f"{result.assignment_count}/{result.mapping_row_count} ROWS | {result.assigned_part_count} PARTS")
 
         extra = []
-        if result.balancing_part_count:
-            extra.append(f"Balancing parts: {result.balancing_part_count}")
-        if result.missing_recommendation_parts:
-            extra.append(f"No reference: {len(result.missing_recommendation_parts)}")
+        if result.missing_part_rows:
+            extra.append(f"Missing parts: {len(result.missing_part_rows)}")
         if result.missing_location_rows:
             extra.append(f"Missing location: {len(result.missing_location_rows)}")
+        if result.missing_feeder_rows:
+            extra.append(f"Missing feeder type: {len(result.missing_feeder_rows)}")
         if result.conflict_rows:
             extra.append(f"Conflicts: {len(result.conflict_rows)}")
+        if result.duplicate_rows:
+            extra.append(f"Duplicate rows skipped: {len(result.duplicate_rows)}")
         extra_text = "\n" + "\n".join(extra) if extra else ""
 
         QMessageBox.information(
             self,
-            "Generate NPM Import File",
+            "Excel to NPM Feeder TXT",
             (
-                f"Target: {result.target_file}\n"
-                f"Reference files: {result.reference_count}\n"
-                f"Assigned parts: {result.assigned_part_count}/{result.target_part_count}\n"
-                f"Fixed feeder assignments: {result.assignment_count}{extra_text}\n"
+                f"Mapping: {result.mapping_file}\n"
+                f"Template: {result.template_file}\n"
+                f"Mapping rows: {result.mapping_row_count}\n"
+                f"Assigned rows: {result.assignment_count}\n"
+                f"Assigned parts: {result.assigned_part_count}{extra_text}\n"
+                f"File: {result.output_path}"
+            ),
+        )
+
+    def _on_generate_cm602_program_cm_txt_done(self, result):
+        output_name = Path(result.output_path).name
+        self.status_label.setText(f"Saved: {output_name}")
+        self.status_label.setToolTip(result.output_path)
+        self.summary_label.setText(f"{result.row_count} ROWS | {result.part_count} PARTS")
+
+        QMessageBox.information(
+            self,
+            "CM602 Program File Converter to CM.txt",
+            (
+                f"Source: {result.source_file}\n"
+                f"Rows: {result.row_count}\n"
+                f"Unique parts: {result.part_count}\n"
+                f"Board: {result.board_x:.3f} x {result.board_y:.3f}\n"
+                f"File: {result.output_path}"
+            ),
+        )
+
+    def _on_generate_cm602_feeder_fix_done(self, result):
+        output_name = Path(result.output_path).name
+        self.status_label.setText(f"Saved: {output_name}")
+        self.status_label.setToolTip(result.output_path)
+        self.summary_label.setText(f"{result.assignment_count}/{result.mapping_row_count} ROWS | {result.slot_count} SLOTS | {result.part_count} PARTS")
+
+        extra = []
+        if result.duplicate_rows:
+            extra.append(f"Duplicate rows skipped: {len(result.duplicate_rows)}")
+        if result.default_feeder_rows:
+            extra.append(f"Default feeder used: {len(result.default_feeder_rows)}")
+        extra_text = "\n" + "\n".join(extra) if extra else ""
+
+        QMessageBox.information(
+            self,
+            "Excel to CM602 FeederFix TXT",
+            (
+                f"Mapping: {result.mapping_file}\n"
+                f"Mapping rows: {result.mapping_row_count}\n"
+                f"Assigned rows: {result.assignment_count}\n"
+                f"Slots: {result.slot_count}\n"
+                f"Unique parts: {result.part_count}{extra_text}\n"
                 f"File: {result.output_path}"
             ),
         )
@@ -461,7 +606,7 @@ class FeederMappingPage(WorkerPage):
         self.balancing_input.setPlainText(feeder_mapping_service.default_balancing_part_numbers_text())
         self.preview_search_input.clear()
         self.mapping_model.set_records([])
-        if self._is_import_mode():
+        if self._is_import_mode() or self._is_cm602_feeder_fix_mode():
             self.summary_label.setText("0 PARTS")
         else:
             self.summary_label.setText("0 FILES" if self._is_multiple_mode() else "0 ROWS")
@@ -491,15 +636,31 @@ class FeederMappingPage(WorkerPage):
     def _is_cm602_mode(self):
         return self.cm602_mode_radio.isChecked()
 
+    def _is_cm602_program_cm_txt_mode(self):
+        return self.cm602_program_cm_txt_mode_radio.isChecked()
+
+    def _is_cm602_feeder_fix_mode(self):
+        return self.cm602_feeder_fix_mode_radio.isChecked()
+
     def _is_import_mode(self):
         return self.import_mode_radio.isChecked()
 
     def _sync_mode_ui(self):
         is_multiple = self._is_multiple_mode()
         is_cm602 = self._is_cm602_mode()
+        is_cm602_program_cm_txt = self._is_cm602_program_cm_txt_mode()
+        is_cm602_feeder_fix = self._is_cm602_feeder_fix_mode()
         is_import = self._is_import_mode()
         if is_import:
-            self.source_picker.label.setText("Target NPM Program (.crb):")
+            self.source_picker.label.setText("Feeder Mapping Excel (.xlsx):")
+            self.reference_picker.label.setText("NPM Program Template (.crb/.txt):")
+            self.source_picker.button.setText("Browse")
+            self.reference_picker.button.setText("Browse")
+        elif is_cm602_feeder_fix:
+            self.source_picker.label.setText("CM602 Feeder Mapping Excel (.xlsx):")
+            self.source_picker.button.setText("Browse")
+        elif is_cm602_program_cm_txt:
+            self.source_picker.label.setText("CM602 Program File:")
             self.source_picker.button.setText("Browse")
         elif is_cm602:
             self.source_picker.label.setText("CM602 Feeder/Program File:")
@@ -508,8 +669,8 @@ class FeederMappingPage(WorkerPage):
             self.source_picker.label.setText("NPM Machine Exports (.txt/.crb):" if is_multiple else "NPM Machine Export (.txt/.crb):")
             self.source_picker.button.setText("Browse Files" if is_multiple else "Browse")
         self.reference_picker.setVisible(is_import)
-        self.balancing_label.setVisible(is_import)
-        self.balancing_input.setVisible(is_import)
+        self.balancing_label.setVisible(False)
+        self.balancing_input.setVisible(False)
         self.mapping_result = None
         self.source_path = ""
         self.multi_source_paths = []
@@ -517,7 +678,7 @@ class FeederMappingPage(WorkerPage):
         self.reference_picker.clear()
         self.preview_search_input.clear()
         self.mapping_model.set_records([])
-        if is_import:
+        if is_import or is_cm602_feeder_fix:
             self.summary_label.setText("0 PARTS")
         else:
             self.summary_label.setText("0 FILES" if is_multiple else "0 ROWS")
@@ -528,11 +689,19 @@ class FeederMappingPage(WorkerPage):
     def _update_mode_actions(self):
         is_multiple = self._is_multiple_mode()
         is_import = self._is_import_mode()
-        self.preview_btn.setEnabled(not is_multiple and not is_import)
-        self.preview_search_input.setEnabled(not is_multiple and not is_import)
+        is_cm602_program_cm_txt = self._is_cm602_program_cm_txt_mode()
+        is_cm602_feeder_fix = self._is_cm602_feeder_fix_mode()
+        self.preview_btn.setEnabled(not is_multiple and not is_import and not is_cm602_program_cm_txt and not is_cm602_feeder_fix)
+        self.preview_search_input.setEnabled(not is_multiple and not is_import and not is_cm602_program_cm_txt and not is_cm602_feeder_fix)
         if is_import:
-            self.generate_btn.setText("Generate NPM CRB")
+            self.generate_btn.setText("Generate Feeder TXT")
             self.generate_btn.setEnabled(bool(self.source_picker.path()) and bool(self.reference_picker.path()))
+        elif is_cm602_program_cm_txt:
+            self.generate_btn.setText("Generate CM.txt")
+            self.generate_btn.setEnabled(bool(self.source_picker.path()))
+        elif is_cm602_feeder_fix:
+            self.generate_btn.setText("Generate FeederFix TXT")
+            self.generate_btn.setEnabled(bool(self.source_picker.path()))
         else:
             self.generate_btn.setText("Generate Workbook" if is_multiple else "Generate Excel")
             self.generate_btn.setEnabled(bool(self.multi_source_paths) if is_multiple else bool(self.source_picker.path()))
