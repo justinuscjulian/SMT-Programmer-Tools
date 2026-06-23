@@ -476,10 +476,32 @@ def _build_assignments(balance_input: _BalanceInput):
 
     _validate_zone_capacity(assignments, zone_caps)
 
-    for part in _sorted_parts(parts):
-        if any(assignment.part_key == part.key for assignment in assignments):
-            continue
-        zone = _best_zone_for_part(part.key, assignments, parts, zone_order, zone_caps)
+    available_capacity = sum(zone_caps.values())
+    max_copy = int(balance_input.profile.get("max_copy_per_part") or len(zone_order) or 1)
+    max_copy = max(1, min(max_copy, len(zone_order) or 1))
+    duplicate_min_insert = float(balance_input.profile.get("duplicate_min_insert") or DEFAULT_DUPLICATE_MIN_INSERT)
+    multi_copy_min_insert = float(balance_input.profile.get("multi_copy_min_insert") or DEFAULT_MULTI_COPY_MIN_INSERT)
+    target = _target_insert(parts, zone_order)
+
+    base_counts = _base_copy_counts(parts, assignments)
+    base_total = sum(base_counts.values())
+    if base_total > available_capacity:
+        raise ServiceError(
+            f"Kebutuhan feeder minimum melebihi usable capacity ({base_total}/{available_capacity}).",
+            title="Kapasitas tidak cukup",
+        )
+
+    planned_counts, unused_spare = _plan_duplicate_copy_counts(
+        parts,
+        base_counts,
+        available_capacity - base_total,
+        max_copy,
+        duplicate_min_insert,
+        multi_copy_min_insert,
+    )
+
+    for part in _planned_assignment_units(parts, assignments, planned_counts):
+        zone = _best_zone_for_part_with_counts(part.key, assignments, parts, zone_order, zone_caps, planned_counts)
         if not zone:
             raise ServiceError(
                 f"Tidak ada zone dengan kapasitas kosong untuk PART NUMBER {part.part_number}.",
@@ -488,40 +510,16 @@ def _build_assignments(balance_input: _BalanceInput):
         assignments.append(_Assignment(next_id, part.key, zone))
         next_id += 1
 
-    _validate_zone_capacity(assignments, zone_caps)
-
-    available_capacity = sum(zone_caps.values())
-    duplicate_slots_to_use = max(0, available_capacity - len(assignments))
-    max_copy = int(balance_input.profile.get("max_copy_per_part") or len(zone_order) or 1)
-    max_copy = max(1, min(max_copy, len(zone_order) or 1))
-    duplicate_min_insert = float(balance_input.profile.get("duplicate_min_insert") or DEFAULT_DUPLICATE_MIN_INSERT)
-    multi_copy_min_insert = float(balance_input.profile.get("multi_copy_min_insert") or DEFAULT_MULTI_COPY_MIN_INSERT)
-    target = _target_insert(parts, zone_order)
-
-    while duplicate_slots_to_use > 0:
-        candidate = _best_duplicate_candidate(
-            assignments,
-            parts,
-            zone_order,
-            zone_caps,
-            target,
-            max_copy,
-            duplicate_min_insert,
-            multi_copy_min_insert,
-            next_id,
-        )
-        if candidate is None:
-            warnings.append(
-                (
-                    f"{duplicate_slots_to_use} spare slot tidak dipakai untuk duplicate. "
-                    f"Rule aktif: duplicate hanya untuk COMPONENT INSERT >= {_format_threshold(duplicate_min_insert)}, "
-                    f"dan copy ke-3 dst hanya untuk insert >= {_format_threshold(multi_copy_min_insert)}."
-                )
+    if unused_spare > 0:
+        warnings.append(
+            (
+                f"{unused_spare} spare slot tidak dipakai untuk duplicate. "
+                f"Rule aktif: duplicate hanya untuk COMPONENT INSERT >= {_format_threshold(duplicate_min_insert)}, "
+                f"dan copy ke-3 dst hanya untuk insert >= {_format_threshold(multi_copy_min_insert)}."
             )
-            break
-        assignments.append(_Assignment(next_id, candidate["part_key"], candidate["zone"]))
-        next_id += 1
-        duplicate_slots_to_use -= 1
+        )
+
+    _validate_zone_capacity(assignments, zone_caps)
 
     improved = _local_improve(assignments, parts, zone_order, zone_caps, target)
     if improved != assignments:
@@ -1037,9 +1035,73 @@ def _warn_insert_conflicts(parts, warnings):
             )
 
 
-def _best_zone_for_part(part_key, assignments, parts, zone_order, zone_caps):
+def _base_copy_counts(parts, assignments):
+    counts = Counter(assignment.part_key for assignment in assignments)
+    for part_key in parts:
+        if counts[part_key] <= 0:
+            counts[part_key] = 1
+    return counts
+
+
+def _plan_duplicate_copy_counts(parts, base_counts, spare_count, max_copy, duplicate_min_insert, multi_copy_min_insert):
+    planned_counts = Counter(base_counts)
+    spare_left = max(0, spare_count)
+
+    while spare_left > 0:
+        candidate = _next_duplicate_part(parts, planned_counts, base_counts, max_copy, duplicate_min_insert, multi_copy_min_insert)
+        if candidate is None:
+            break
+        planned_counts[candidate.key] += 1
+        spare_left -= 1
+
+    return planned_counts, spare_left
+
+
+def _next_duplicate_part(parts, planned_counts, base_counts, max_copy, duplicate_min_insert, multi_copy_min_insert):
+    best_part = None
+    best_rank = None
+    for part in _sorted_parts(parts):
+        copy_limit = max(
+            base_counts.get(part.key, 1),
+            _duplicate_copy_limit(part, max_copy, duplicate_min_insert, multi_copy_min_insert),
+        )
+        if planned_counts.get(part.key, 0) >= copy_limit:
+            continue
+
+        next_copy_count = planned_counts.get(part.key, 0) + 1
+        marginal_effective_insert = part.insert / max(1, next_copy_count)
+        rank = (
+            -marginal_effective_insert,
+            -part.insert,
+            planned_counts.get(part.key, 0),
+            natural_sort_key(part.part_number),
+        )
+        if best_rank is None or rank < best_rank:
+            best_rank = rank
+            best_part = part
+    return best_part
+
+
+def _planned_assignment_units(parts, assignments, planned_counts):
+    fixed_counts = Counter(assignment.part_key for assignment in assignments)
+    units = []
+    for part in parts.values():
+        remaining = max(0, planned_counts.get(part.key, 1) - fixed_counts.get(part.key, 0))
+        units.extend([part] * remaining)
+
+    units.sort(
+        key=lambda part: (
+            -_effective_insert(part, planned_counts.get(part.key, 1)),
+            -part.insert,
+            natural_sort_key(part.part_number),
+        )
+    )
+    return units
+
+
+def _best_zone_for_part_with_counts(part_key, assignments, parts, zone_order, zone_caps, copy_counts):
     used_zones = _zones_for_part(assignments, part_key)
-    loads = _zone_loads(assignments, parts, zone_order)
+    loads = _zone_loads_with_counts(assignments, parts, zone_order, copy_counts)
     counts = _zone_counts(assignments, zone_order)
     candidates = [
         zone
@@ -1058,78 +1120,12 @@ def _best_zone_for_part(part_key, assignments, parts, zone_order, zone_caps):
     )
 
 
-def _candidate_duplicate_zones(part_key, assignments, zone_order, zone_caps):
-    used_zones = _zones_for_part(assignments, part_key)
-    counts = _zone_counts(assignments, zone_order)
-    return [
-        zone
-        for zone in zone_order
-        if zone not in used_zones and counts[zone] < zone_caps.get(zone, 0)
-    ]
-
-
-def _best_duplicate_candidate(
-    assignments,
-    parts,
-    zone_order,
-    zone_caps,
-    target,
-    max_copy,
-    duplicate_min_insert,
-    multi_copy_min_insert,
-    next_id,
-):
-    current_score = _objective(assignments, parts, zone_order, target)
-    best_candidate = None
-    best_rank = None
-
-    for part in _sorted_parts(parts):
-        copy_count = _copy_count(assignments, part.key)
-        copy_limit = _duplicate_copy_limit(part, max_copy, duplicate_min_insert, multi_copy_min_insert)
-        if copy_count >= copy_limit:
-            continue
-
-        candidate_zones = _candidate_duplicate_zones(part.key, assignments, zone_order, zone_caps)
-        for zone in candidate_zones:
-            candidate_assignments = list(assignments) + [_Assignment(next_id, part.key, zone)]
-            score = _objective(candidate_assignments, parts, zone_order, target)
-            if score >= current_score:
-                continue
-
-            rank = (
-                score,
-                -part.insert,
-                copy_count,
-                natural_sort_key(part.part_number),
-                natural_sort_key(zone),
-            )
-            if best_rank is None or rank < best_rank:
-                best_rank = rank
-                best_candidate = {"part_key": part.key, "zone": zone}
-
-    return best_candidate
-
-
 def _duplicate_copy_limit(part, max_copy, duplicate_min_insert, multi_copy_min_insert):
     if part.insert < duplicate_min_insert:
         return 1
     if part.insert >= multi_copy_min_insert:
         return max_copy
     return min(2, max_copy)
-
-
-def _best_duplicate_zone(part_key, candidate_zones, assignments, parts, zone_order, target):
-    best_zone = None
-    best_score = None
-    next_id = max((assignment.assignment_id for assignment in assignments), default=0) + 1
-    for zone in candidate_zones:
-        candidate = list(assignments) + [_Assignment(next_id, part_key, zone)]
-        score = _objective(candidate, parts, zone_order, target)
-        tie = (score, natural_sort_key(zone))
-        if best_score is None or tie < best_score:
-            best_score = tie
-            best_zone = zone
-    return best_zone or candidate_zones[0]
 
 
 def _local_improve(assignments, parts, zone_order, zone_caps, target):
@@ -1229,6 +1225,14 @@ def _zone_loads(assignments, parts, zone_order):
     for assignment in assignments:
         part = parts[assignment.part_key]
         loads[assignment.zone] += _effective_insert(part, copy_counts[assignment.part_key])
+    return loads
+
+
+def _zone_loads_with_counts(assignments, parts, zone_order, copy_counts):
+    loads = {zone: 0.0 for zone in zone_order}
+    for assignment in assignments:
+        part = parts[assignment.part_key]
+        loads[assignment.zone] += _effective_insert(part, copy_counts.get(assignment.part_key, 1))
     return loads
 
 
