@@ -86,10 +86,10 @@ HELP_SECTIONS = [
     },
     {
         "title": "Feeder Mapping Generator",
-        "subtitle": "Convert export TXT/CRB dari mesin NPM menjadi Excel feeder mapping.",
+        "subtitle": "Convert export/program feeder NPM atau CM602 menjadi Excel feeder mapping.",
         "steps": [
             "Buka Other Tools lalu pilih Feeder Mapping Generator.",
-            "Pilih mode Single Feeder File untuk satu export NPM .txt/.crb, Multiple Feeder Files untuk beberapa file, CM602 untuk file feeder/program CM602, CM602 Program File Converter to CM.txt untuk membuat file CM.txt, Excel to CM602 FeederFix TXT untuk membuat 45-FIX style file, atau Excel to NPM Feeder TXT untuk membuat file feeder import dari Excel.",
+            "Pilih mode Single Feeder File untuk satu export NPM .txt/.crb, Multiple Feeder Files untuk beberapa file NPM/CM602, CM602 untuk satu file feeder/program CM602, CM602 Program File Converter to CM.txt untuk membuat file CM.txt, Excel to CM602 FeederFix TXT untuk membuat 45-FIX style file, atau Excel to NPM Feeder TXT untuk membuat file feeder import dari Excel.",
             "Di mode single atau CM602, klik Preview Mapping untuk mengecek Table, Slot, Position, Location Code, dan Part Number.",
             "Klik Generate Excel/Workbook lalu pilih lokasi output.",
         ],
@@ -98,6 +98,7 @@ HELP_SECTIONS = [
             "Data CM602 diambil dari section FeederFix; jika file program CM602 yang dipilih, data dibaca dari StockData dan PartsData.",
             "Feeder kecil dibuat sebagai posisi L/R.",
             "Feeder besar dibuat sebagai Large (2-Rel) atau Extra Large (3-Rel).",
+            "Mode multiple auto-detect format per file: NPM export .txt/.crb atau program/feeder CM602, termasuk file CM602 tanpa ekstensi.",
             "Mode multiple membuat satu workbook berisi sheet Summary dan sheet detail terpisah untuk setiap feeder file.",
             "Summary memilih feeder rekomendasi yang paling sering dipakai tanpa bentrok bila masih ada feeder alternatif.",
             "Kalau part yang sama sengaja muncul di beberapa feeder, Summary menandainya sebagai BALANCING dan tidak dianggap conflict.",

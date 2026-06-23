@@ -297,9 +297,9 @@ class FeederMappingPage(WorkerPage):
     def browse_multiple_sources(self):
         file_paths, _ = QFileDialog.getOpenFileNames(
             self,
-            "Select NPM Machine Exports",
+            "Select NPM/CM602 Feeder Files",
             "",
-            "NPM Export (*.txt *.TXT *.crb *.CRB);;Text/CRB Files (*.txt *.TXT *.crb *.CRB);;All Files (*)",
+            "NPM/CM602 Files (*.txt *.TXT *.crb *.CRB);;Text/CRB Files (*.txt *.TXT *.crb *.CRB);;All Files (*)",
         )
         if file_paths:
             self.multi_source_paths = file_paths
@@ -408,7 +408,7 @@ class FeederMappingPage(WorkerPage):
     def generate_multiple_excel(self):
         source_paths = list(self.multi_source_paths)
         if not source_paths:
-            QMessageBox.warning(self, "Input belum lengkap", "File export mesin NPM belum dipilih.")
+            QMessageBox.warning(self, "Input belum lengkap", "File feeder/program NPM atau CM602 belum dipilih.")
             return
 
         output_path, _ = QFileDialog.getSaveFileName(
@@ -666,7 +666,7 @@ class FeederMappingPage(WorkerPage):
             self.source_picker.label.setText("CM602 Feeder/Program File:")
             self.source_picker.button.setText("Browse")
         else:
-            self.source_picker.label.setText("NPM Machine Exports (.txt/.crb):" if is_multiple else "NPM Machine Export (.txt/.crb):")
+            self.source_picker.label.setText("NPM/CM602 Feeder Files:" if is_multiple else "NPM Machine Export (.txt/.crb):")
             self.source_picker.button.setText("Browse Files" if is_multiple else "Browse")
         self.reference_picker.setVisible(is_import)
         self.balancing_label.setVisible(False)

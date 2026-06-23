@@ -357,9 +357,9 @@ def generate_cm602_feeder_fix_import_file(mapping_path, output_path):
 def load_multiple_feeder_mappings(source_paths):
     paths = _clean_source_paths(source_paths)
     if not paths:
-        raise ServiceError("Belum ada file export mesin NPM yang dipilih.", title="Input belum lengkap")
+        raise ServiceError("Belum ada file feeder/program yang dipilih.", title="Input belum lengkap")
 
-    mappings = [load_feeder_mapping(path) for path in paths]
+    mappings = [_load_feeder_mapping_auto(path) for path in paths]
     summary_records = _build_summary_records(mappings)
     return FeederMappingBatchResult(
         mappings=mappings,
@@ -374,6 +374,26 @@ def generate_multiple_feeder_mapping_excel(source_paths, output_path):
     result = load_multiple_feeder_mappings(source_paths)
     result.output_path = export_multiple_feeder_mapping(result, output_path)
     return result
+
+
+def _load_feeder_mapping_auto(file_path):
+    try:
+        return load_feeder_mapping(file_path)
+    except Exception as npm_exc:
+        try:
+            return load_cm602_feeder_mapping(file_path)
+        except Exception as cm602_exc:
+            npm_message = _error_message(npm_exc)
+            cm602_message = _error_message(cm602_exc)
+            raise ServiceError(
+                (
+                    f"File tidak cocok sebagai NPM export ataupun CM602 program/feeder file:\n"
+                    f"{file_path}\n\n"
+                    f"NPM: {npm_message}\n"
+                    f"CM602: {cm602_message}"
+                ),
+                title="Format feeder tidak valid",
+            ) from cm602_exc
 
 
 def generate_npm_feeder_import_file(mapping_path, template_path, output_path):
