@@ -66,7 +66,8 @@ def load_raw_bom(file_path, check_duplicate_circuits=False):
 
     if ext in [".xlsx", ".xls"]:
         try:
-            raw_df = pd.read_excel(file_path, header=None, dtype=str)
+            engine = "xlrd" if ext == ".xls" else "openpyxl"
+            raw_df = pd.read_excel(file_path, header=None, dtype=str, engine=engine)
         except Exception as exc:
             raise ServiceError(f"Excel error:\n{exc}") from exc
     else:

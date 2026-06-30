@@ -28,8 +28,13 @@ def run_worksheet_compare(file_excel, file_crb):
         if file_excel.lower().endswith(".csv"):
             df_raw = pd.read_csv(file_excel, header=None)
         else:
-            xls = pd.ExcelFile(file_excel)
-            df_raw = pd.read_excel(xls, sheet_name=xls.sheet_names[0], header=None)
+            ext = os.path.splitext(file_excel)[1].lower()
+            engine = "xlrd" if ext == ".xls" else "openpyxl"
+            xls = pd.ExcelFile(file_excel, engine=engine)
+            try:
+                df_raw = pd.read_excel(xls, sheet_name=xls.sheet_names[0], header=None)
+            finally:
+                xls.close()
 
         part_col = 1
         qty_col = 2

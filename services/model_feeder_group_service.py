@@ -1,3 +1,4 @@
+import os
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime
@@ -7,14 +8,14 @@ from pathlib import Path
 from openpyxl import Workbook
 
 from services.common_feeder_reuse_service import (
+    EXCEL_EXTENSIONS,
     _error_message,
-    _find_excel_files,
     _normalize_output_path,
     _part_key,
-    _program_info,
     _read_bom_parts,
     _style_sheet,
 )
+from services.component_usage_finder_service import format_pcb_part_number, parse_pcb_part_number
 from services.errors import ServiceError
 
 
@@ -30,14 +31,14 @@ GROUP_COLUMNS = [
     ("min_similarity_percent", "Min Similarity %"),
     ("common_component_count", "Common Parts"),
     ("union_component_count", "Union Parts"),
-    ("members", "PCB / Model Members"),
+    ("members", "PCB Members"),
     ("common_components", "Recommended Fixed Feeder Parts"),
 ]
 
 PAIR_COLUMNS = [
     ("status", "Status"),
-    ("model_a", "PCB / Model A"),
-    ("model_b", "PCB / Model B"),
+    ("model_a", "PCB A"),
+    ("model_b", "PCB B"),
     ("similarity_percent", "Similarity %"),
     ("jaccard_percent", "Jaccard %"),
     ("shared_component_count", "Shared Parts"),
@@ -53,16 +54,15 @@ GROUP_COMPONENT_COLUMNS = [
     ("used_in_count", "Used In PCB"),
     ("member_count", "PCB Count"),
     ("coverage_percent", "Coverage %"),
-    ("members", "PCB / Model Members"),
+    ("members", "PCB Members"),
 ]
 
 MODEL_COLUMNS = [
-    ("pcb_model", "PCB / Model"),
     ("pcb_part_number", "PCB Part Number"),
-    ("model_part_numbers", "Model Part Number"),
     ("component_count", "Component Count"),
+    ("excel_file_count", "Excel Files"),
     ("source_folder", "Source Folder"),
-    ("source_file", "Source File"),
+    ("source_files", "Source Files"),
     ("components", "Component P/N"),
 ]
 
@@ -79,9 +79,8 @@ class ModelUsage:
     key: str
     display_name: str
     pcb_part_number: str
-    model_part_numbers: list[str]
     source_folder: str
-    source_file: str
+    source_files: list[str]
     components: OrderedDict
 
     @property
@@ -107,7 +106,7 @@ class ModelFeederGroupResult:
 
 def analyze_model_feeder_groups(config: ModelFeederGroupConfig, progress_callback=None):
     _validate_config(config)
-    _emit_progress(progress_callback, 0, "Scanning model BOM files...")
+    _emit_progress(progress_callback, 0, "Scanning PCB folders...")
 
     models, total_files, read_files, skipped_files = _scan_models(config.source_folder, progress_callback)
     if not models:
@@ -126,7 +125,7 @@ def analyze_model_feeder_groups(config: ModelFeederGroupConfig, progress_callbac
             min_shared_components=config.min_shared_components,
         )
 
-    _emit_progress(progress_callback, 96, "Calculating model similarity...")
+    _emit_progress(progress_callback, 96, "Calculating PCB similarity...")
     pair_rows, pair_lookup = _build_pair_rows(models, config)
 
     _emit_progress(progress_callback, 98, "Building recommended fixed-feeder groups...")
@@ -154,7 +153,7 @@ def analyze_model_feeder_groups(config: ModelFeederGroupConfig, progress_callbac
 
 
 def suggest_export_name():
-    return f"Model_Fix_Feeder_Groups_{datetime.now().strftime('%y%m%d')}.xlsx"
+    return f"PCB_Fix_Feeder_Groups_{datetime.now().strftime('%y%m%d')}.xlsx"
 
 
 def export_model_feeder_group_result(result, output_path):
@@ -175,7 +174,7 @@ def export_model_feeder_group_result(result, output_path):
     pair_sheet = workbook.create_sheet("Pair Similarity")
     _write_records_sheet(pair_sheet, result.pair_rows, PAIR_COLUMNS)
 
-    model_sheet = workbook.create_sheet("Model Components")
+    model_sheet = workbook.create_sheet("PCB Components")
     _write_records_sheet(model_sheet, result.model_rows, MODEL_COLUMNS)
 
     log_sheet = workbook.create_sheet("Scan Log")
@@ -187,37 +186,61 @@ def export_model_feeder_group_result(result, output_path):
 
 def _scan_models(source_folder, progress_callback=None):
     folder = Path(source_folder)
-    excel_files, walk_errors = _find_excel_files(folder)
     models = OrderedDict()
-    skipped_files = list(walk_errors)
+    skipped_files = []
     read_files = 0
-    total_files = len(excel_files)
+    pcb_folders = _pcb_folders(folder)
+    folder_files_map = {pcb_folder: _excel_files_in_folder(pcb_folder) for pcb_folder in pcb_folders}
+    total_files = sum(len(files) for files in folder_files_map.values())
 
-    for index, file_path in enumerate(excel_files, start=1):
-        percent = max(1, min(95, int((index - 1) / max(1, total_files) * 95)))
-        _emit_progress(progress_callback, percent, f"Reading BOM {index}/{total_files}: {file_path.name}")
-
-        try:
-            part_values = _read_bom_parts(file_path)
-        except Exception as exc:
-            skipped_files.append(f"{file_path}: {_error_message(exc)}")
+    file_index = 0
+    for pcb_folder in pcb_folders:
+        excel_files = folder_files_map[pcb_folder]
+        if not excel_files:
+            skipped_files.append(f"{pcb_folder.name}: tidak ada file Excel program")
             continue
 
-        read_files += 1
-        components = _unique_components(part_values)
-        if not components:
-            skipped_files.append(f"{file_path}: Sheet BOM tidak punya component P/N yang valid.")
+        merged_components = OrderedDict()
+        source_files = []
+        for file_path in excel_files:
+            file_index += 1
+            percent = max(1, min(95, int((file_index - 1) / max(1, total_files) * 95)))
+            _emit_progress(
+                progress_callback,
+                percent,
+                f"Reading {pcb_folder.name} ({file_index}/{total_files}): {file_path.name}",
+            )
+
+            try:
+                part_values = _read_bom_parts(file_path)
+            except Exception as exc:
+                skipped_files.append(f"{pcb_folder.name} / {file_path.name}: {_error_message(exc)}")
+                continue
+
+            read_files += 1
+            components = _unique_components(part_values)
+            if not components:
+                skipped_files.append(f"{pcb_folder.name} / {file_path.name}: Sheet BOM tidak punya component P/N yang valid.")
+                continue
+
+            source_files.append(file_path.name)
+            for key, part in components.items():
+                if key not in merged_components:
+                    merged_components[key] = part
+
+        if not merged_components:
+            skipped_files.append(f"{pcb_folder.name}: tidak ada component P/N valid dari semua Excel program")
             continue
 
-        info = _program_info(file_path)
-        models[info.key] = ModelUsage(
-            key=info.key,
-            display_name=info.display_name,
-            pcb_part_number=info.pcb_part_number,
-            model_part_numbers=info.model_part_numbers,
-            source_folder=info.source_folder,
-            source_file=info.source_file,
-            components=components,
+        pcb_part_number = _pcb_part_number_for_folder(pcb_folder, source_files)
+        folder_key = str(pcb_folder.resolve()).upper()
+        models[folder_key] = ModelUsage(
+            key=folder_key,
+            display_name=pcb_part_number,
+            pcb_part_number=pcb_part_number,
+            source_folder=pcb_folder.name,
+            source_files=source_files,
+            components=merged_components,
         )
 
     models = OrderedDict(sorted(models.items(), key=lambda item: item[1].display_name.upper()))
@@ -382,12 +405,11 @@ def _build_model_rows(models):
     for model in models.values():
         rows.append(
             {
-                "pcb_model": model.display_name,
                 "pcb_part_number": model.pcb_part_number,
-                "model_part_numbers": ", ".join(model.model_part_numbers) if model.model_part_numbers else "-",
                 "component_count": model.component_count,
+                "excel_file_count": len(model.source_files),
                 "source_folder": model.source_folder,
-                "source_file": model.source_file,
+                "source_files": "; ".join(model.source_files),
                 "components": _format_components(model.components.keys(), model.components, limit=200),
             }
         )
@@ -405,9 +427,9 @@ def _write_scan_log(worksheet, result):
     rows = [
         ("Excel files found", result.total_files),
         ("Files read", result.read_files),
-        ("Models analyzed", result.model_count),
+        ("PCB folders analyzed", result.model_count),
         ("Recommended groups", result.group_count),
-        ("Single models", result.single_count),
+        ("Single PCB", result.single_count),
         ("Minimum similarity %", result.min_similarity_percent),
         ("Minimum shared components", result.min_shared_components),
         ("Skipped/error files", len(result.skipped_files)),
@@ -446,6 +468,47 @@ def _unique_components(parts):
         if key and key not in unique:
             unique[key] = str(part).strip()
     return unique
+
+
+def _pcb_folders(source_folder):
+    try:
+        entries = sorted(os.scandir(source_folder), key=lambda e: e.name.upper())
+    except OSError:
+        return [source_folder]
+    child_folders = [Path(e.path) for e in entries if e.is_dir()]
+    return child_folders or [source_folder]
+
+
+def _excel_files_in_folder(folder):
+    files = []
+    try:
+        entries = sorted(os.scandir(folder), key=lambda e: e.name.upper())
+    except OSError:
+        return files
+    for entry in entries:
+        if not entry.is_file():
+            continue
+        if entry.name.startswith("~$"):
+            continue
+        ext = os.path.splitext(entry.name)[1].lower()
+        if ext in EXCEL_EXTENSIONS:
+            files.append(Path(entry.path))
+    return files
+
+
+def _pcb_part_number_for_folder(pcb_folder, source_files):
+    pcb_part_number, revision = parse_pcb_part_number(pcb_folder)
+    display = format_pcb_part_number(pcb_part_number, revision)
+    if display != "-":
+        return display
+
+    for file_name in source_files:
+        pcb_part_number, revision = parse_pcb_part_number(pcb_folder / file_name)
+        display = format_pcb_part_number(pcb_part_number, revision)
+        if display != "-":
+            return display
+
+    return pcb_folder.name
 
 
 def _format_components(component_keys, component_catalog, limit=30):

@@ -348,7 +348,7 @@ def _read_bom_pandas(path, target_key):
         ) from exc
 
     try:
-        excel = pd.ExcelFile(path)
+        excel = pd.ExcelFile(path, engine="xlrd")
     except ImportError as exc:
         raise ServiceError(
             "File .xls membutuhkan library xlrd. Jalankan install dependency dari requirements.txt.",
@@ -396,9 +396,9 @@ def _find_excel_files(source_folder):
         for file_name in sorted(file_names, key=lambda name: name.upper()):
             if file_name.startswith("~$"):
                 continue
-            path = Path(current_folder) / file_name
-            if path.suffix.lower() in EXCEL_EXTENSIONS:
-                files.append(path)
+            ext = os.path.splitext(file_name)[1].lower()
+            if ext in EXCEL_EXTENSIONS:
+                files.append(Path(current_folder) / file_name)
 
     return files, errors
 

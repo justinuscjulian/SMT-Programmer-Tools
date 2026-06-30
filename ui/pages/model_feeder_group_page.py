@@ -45,7 +45,7 @@ class ModelFeederGroupPage(WorkerPage):
         root.setSpacing(12)
 
         header = QHBoxLayout()
-        title = QLabel("Model Fix Feeder Group Analyzer")
+        title = QLabel("PCB Fix Feeder Group Analyzer")
         title.setObjectName("SectionTitle")
         self.summary_label = QLabel("0 GROUPS")
         self.summary_label.setObjectName("MutedLabel")
@@ -124,12 +124,12 @@ class ModelFeederGroupPage(WorkerPage):
 
         table_card = Card()
         table_header = QHBoxLayout()
-        table_title = QLabel("Recommended Fix Feeder Groups")
+        table_title = QLabel("Recommended PCB Fix Feeder Groups")
         table_title.setObjectName("SectionTitle")
         search_label = QLabel("Search:")
         search_label.setObjectName("MutedLabel")
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search group, PCB, model, atau component")
+        self.search_input.setPlaceholderText("Search group, PCB, folder, atau component")
         self.search_input.setClearButtonEnabled(True)
         self.search_input.textChanged.connect(self.apply_filters)
         table_header.addWidget(table_title)
@@ -148,7 +148,7 @@ class ModelFeederGroupPage(WorkerPage):
                 ColumnSpec("min_similarity_percent", "Min Similarity %", Qt.AlignCenter, 125),
                 ColumnSpec("common_component_count", "Common Parts", Qt.AlignCenter, 110),
                 ColumnSpec("union_component_count", "Union Parts", Qt.AlignCenter, 100),
-                ColumnSpec("members", "PCB / Model Members", Qt.AlignLeft, 360),
+                ColumnSpec("members", "PCB Members", Qt.AlignLeft, 360),
                 ColumnSpec("common_components", "Recommended Fixed Feeder Parts", Qt.AlignLeft, 420),
             ],
             status_key="status",
@@ -201,9 +201,9 @@ class ModelFeederGroupPage(WorkerPage):
             )
 
         worker = TaskWorker(task)
-        worker._busy_text = "Analyzing model groups..."
+        worker._busy_text = "Analyzing PCB groups..."
         self._workers.append(worker)
-        worker.signals.started.connect(lambda: self.set_busy(True, "Analyzing model groups..."))
+        worker.signals.started.connect(lambda: self.set_busy(True, "Analyzing PCB groups..."))
         worker.signals.progress.connect(self._on_analysis_progress)
         worker.signals.result.connect(self._on_analysis_done)
         worker.signals.error.connect(self._show_worker_error)
@@ -230,7 +230,7 @@ class ModelFeederGroupPage(WorkerPage):
             QMessageBox.information(self, "Data kosong", 'Tidak ada sheet "BOM" valid yang bisa dianalisa.')
         else:
             self.status_label.setText(
-                f"Done: {result.group_count} groups, {result.single_count} single, {result.model_count} models"
+                f"Done: {result.group_count} groups, {result.single_count} single, {result.model_count} PCB"
             )
 
     def apply_filters(self, *_):
@@ -265,7 +265,7 @@ class ModelFeederGroupPage(WorkerPage):
 
         output_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Save Model Fix Feeder Groups",
+            "Save PCB Fix Feeder Groups",
             suggest_export_name(),
             "Excel Workbook (*.xlsx)",
         )

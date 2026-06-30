@@ -174,27 +174,35 @@ def find_target_file(main_folder, pcb_num, num_only):
     best_file = None
     best_date = -1
 
-    for subfolder in Path(main_folder).iterdir():
-        if not subfolder.is_dir():
+    try:
+        main_entries = os.scandir(main_folder)
+    except OSError:
+        return None
+    for main_entry in main_entries:
+        if not main_entry.is_dir():
             continue
 
-        if pcb_num.lower() not in subfolder.name.lower():
+        if pcb_num.lower() not in main_entry.name.lower():
             continue
 
-        for file in subfolder.iterdir():
-            if not file.is_file():
+        try:
+            sub_entries = os.scandir(main_entry.path)
+        except OSError:
+            continue
+        for file_entry in sub_entries:
+            if not file_entry.is_file():
                 continue
 
-            if not is_excel_file(file.name):
+            if not is_excel_file(file_entry.name):
                 continue
 
-            if num_only.lower() not in file.name.lower():
+            if num_only.lower() not in file_entry.name.lower():
                 continue
 
-            file_date = get_date_code_from_filename(file)
+            file_date = get_date_code_from_filename(file_entry.path)
             if file_date >= best_date:
                 best_date = file_date
-                best_file = str(file)
+                best_file = file_entry.path
 
         if best_file:
             break

@@ -321,17 +321,20 @@ def _load_reference_mc_lookup(reference_path):
         raise ServiceError(f"Excel Referensi tidak bisa dibaca untuk lookup kolom N:\n{exc}") from exc
 
     if "DX" not in workbook.sheetnames:
+        workbook.close()
         raise ServiceError('Sheet "DX" tidak ditemukan pada Excel Referensi.', title="Format Referensi tidak valid")
 
-    worksheet = workbook["DX"]
-    lookup = {}
-    for row in worksheet.iter_rows(min_row=2, min_col=11, max_col=14, values_only=True):
-        part_number = _key(row[0])
-        machine_code = row[3]
-        if part_number and machine_code not in (None, "") and part_number not in lookup:
-            lookup[part_number] = machine_code
-    workbook.close()
-    return lookup
+    try:
+        worksheet = workbook["DX"]
+        lookup = {}
+        for row in worksheet.iter_rows(min_row=2, min_col=11, max_col=14, values_only=True):
+            part_number = _key(row[0])
+            machine_code = row[3]
+            if part_number and machine_code not in (None, "") and part_number not in lookup:
+                lookup[part_number] = machine_code
+        return lookup
+    finally:
+        workbook.close()
 
 
 def _sort_dx_rows_like_reprog(rows, bom_lookup, reference_lookup):

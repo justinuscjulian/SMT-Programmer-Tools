@@ -420,13 +420,18 @@ def _sorted_master_parts(groups):
 
 def _excel_files_in_folder(folder):
     files = []
-    for path in sorted(folder.iterdir(), key=lambda item: item.name.upper()):
-        if not path.is_file():
+    try:
+        entries = sorted(os.scandir(folder), key=lambda e: e.name.upper())
+    except OSError:
+        return files
+    for entry in entries:
+        if not entry.is_file():
             continue
-        if path.name.startswith("~$"):
+        if entry.name.startswith("~$"):
             continue
-        if path.suffix.lower() in EXCEL_EXTENSIONS:
-            files.append(path)
+        ext = os.path.splitext(entry.name)[1].lower()
+        if ext in EXCEL_EXTENSIONS:
+            files.append(Path(entry.path))
     return files
 
 
@@ -446,13 +451,18 @@ def _parse_pcb_part_numbers(text):
 def _map_pcb_folders(main_folder, pcb_numbers):
     targets = {pcb.upper(): pcb for pcb in pcb_numbers}
     folder_map = {pcb: [] for pcb in pcb_numbers}
-    for child in sorted(main_folder.iterdir(), key=lambda item: item.name.upper()):
-        if not child.is_dir():
+    try:
+        entries = sorted(os.scandir(main_folder), key=lambda e: e.name.upper())
+    except OSError:
+        return {}
+    for entry in entries:
+        if not entry.is_dir():
             continue
 
-        name_upper = child.name.upper()
+        child = Path(entry.path)
+        name_upper = entry.name.upper()
         matched = None
-        match = re.search(r"EAX[A-Za-z0-9]{8}", child.name, re.IGNORECASE)
+        match = re.search(r"EAX[A-Za-z0-9]{8}", entry.name, re.IGNORECASE)
         if match:
             matched = targets.get(match.group(0).upper())
         if matched is None:

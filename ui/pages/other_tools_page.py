@@ -172,7 +172,7 @@ class OtherToolsPage(QWidget):
             ),
             (
                 "model_feeder_group_button",
-                "Model Fix Feeder Groups",
+                "PCB Fix Feeder Groups",
                 "Kelompokkan PCB yang component usage-nya mirip",
                 "model_group",
                 self.open_model_feeder_group,
@@ -446,7 +446,7 @@ class OtherToolsPage(QWidget):
         top = QHBoxLayout()
         self.back_model_feeder_group_button = QPushButton("Back to Tools")
         self.back_model_feeder_group_button.clicked.connect(self.open_menu)
-        title = QLabel("Model Fix Feeder Group Analyzer")
+        title = QLabel("PCB Fix Feeder Group Analyzer")
         title.setObjectName("TitleLabel")
         top.addWidget(self.back_model_feeder_group_button)
         top.addWidget(title)

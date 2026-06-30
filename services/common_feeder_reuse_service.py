@@ -326,7 +326,7 @@ def _read_bom_parts_pandas(path):
             title="Dependency belum lengkap",
         ) from exc
 
-    excel = pd.ExcelFile(path)
+    excel = pd.ExcelFile(path, engine="xlrd")
     try:
         sheet_name = _find_sheet_case_insensitive(excel.sheet_names, TARGET_SHEET_NAME)
         if sheet_name is None:
@@ -381,7 +381,7 @@ def _read_feeder_records_pandas(path):
             title="Dependency belum lengkap",
         ) from exc
 
-    excel = pd.ExcelFile(path)
+    excel = pd.ExcelFile(path, engine="xlrd")
     try:
         sheet_name = "Detailed Feeder Setup" if "Detailed Feeder Setup" in excel.sheet_names else excel.sheet_names[0]
         dataframe = pd.read_excel(excel, sheet_name=sheet_name, header=None, dtype=object, na_filter=False)
@@ -578,9 +578,9 @@ def _find_excel_files(source_folder):
         for file_name in sorted(file_names, key=lambda name: name.upper()):
             if file_name.startswith("~$"):
                 continue
-            path = Path(current_folder) / file_name
-            if path.suffix.lower() in EXCEL_EXTENSIONS:
-                files.append(path)
+            ext = os.path.splitext(file_name)[1].lower()
+            if ext in EXCEL_EXTENSIONS:
+                files.append(Path(current_folder) / file_name)
 
     return files, errors
 
