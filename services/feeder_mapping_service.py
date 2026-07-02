@@ -127,6 +127,7 @@ class FeederMappingResult:
 class FeederMappingBatchResult:
     mappings: list
     summary_records: list
+    raw_summary_records: list
     source_count: int
     row_count: int
     part_count: int
@@ -361,10 +362,11 @@ def load_multiple_feeder_mappings(source_paths):
         raise ServiceError("Belum ada file feeder/program yang dipilih.", title="Input belum lengkap")
 
     mappings = [_load_feeder_mapping_auto(path) for path in paths]
-    summary_records = _build_summary_records(mappings)
+    summary_records, raw_summary_records = _build_summary_records(mappings)
     return FeederMappingBatchResult(
         mappings=mappings,
         summary_records=summary_records,
+        raw_summary_records=raw_summary_records,
         source_count=len(mappings),
         row_count=sum(mapping.row_count for mapping in mappings),
         part_count=len(summary_records),
@@ -1061,9 +1063,12 @@ def export_multiple_feeder_mapping(result, output_path):
     workbook = Workbook()
     summary_sheet = workbook.active
     summary_sheet.title = "Summary"
-    _append_summary_sheet(summary_sheet, result)
+    _append_summary_sheet(summary_sheet, result.summary_records)
 
-    used_titles = {"summary"}
+    raw_summary_sheet = workbook.create_sheet("Summary (Raw)")
+    _append_summary_sheet(raw_summary_sheet, result.raw_summary_records)
+
+    used_titles = {"summary", "summary (raw)"}
     for mapping in result.mappings:
         worksheet = workbook.create_sheet(_unique_sheet_title(mapping.source_file, used_titles))
         _append_mapping_sheet(worksheet, mapping.records)
@@ -1448,11 +1453,11 @@ def _append_mapping_sheet(worksheet, records):
     _style_mapping_sheet(worksheet)
 
 
-def _append_summary_sheet(worksheet, result):
+def _append_summary_sheet(worksheet, summary_records):
     header_row = 1
     worksheet.append(SUMMARY_HEADERS)
 
-    for record in result.summary_records:
+    for record in summary_records:
         worksheet.append(
             [
                 record["part_number"],
@@ -1528,7 +1533,48 @@ def _build_summary_records(mappings):
             }
         )
 
-    return _resolve_summary_location_conflicts(summary_records)
+    raw_records = []
+    for row in summary_records:
+        candidates = row["candidates"]
+        top_candidate = candidates[0]
+        if row.get("balancing_locations"):
+            selected_candidates = [
+                candidate for candidate in candidates if candidate["location"] in row["balancing_locations"]
+            ]
+        else:
+            selected_candidates = [top_candidate]
+        
+        for candidate in selected_candidates:
+            selected_locations = {c["location"] for c in selected_candidates}
+            other_candidates = [c for c in candidates if c["location"] not in selected_locations]
+            other_locations = ", ".join(f"{c['location']} ({c['file_count']} file)" for c in other_candidates)
+            notes = []
+            if len(selected_candidates) > 1:
+                selected_location_text = ", ".join(sorted(selected_locations, key=_location_sort_key))
+                notes.append(f"BALANCING SLOTS: {selected_location_text}")
+            
+            raw_records.append({
+                "part_number": row["part_number"],
+                "top_location": candidate["location"],
+                "top_count": str(candidate["file_count"]),
+                "sort_count": candidate["file_count"],
+                "file_count": row["file_count"],
+                "total_count": row["total_count"],
+                "other_locations": other_locations,
+                "notes": "; ".join(notes),
+            })
+            
+    raw_records.sort(
+        key=lambda row: (
+            _location_sort_key(row["top_location"]),
+            -row["sort_count"],
+            natural_sort_key(row["part_number"]),
+        )
+    )
+    for row in raw_records:
+        row.pop("sort_count", None)
+
+    return _resolve_summary_location_conflicts(summary_records), raw_records
 
 
 def _resolve_summary_location_conflicts(summary_records):
