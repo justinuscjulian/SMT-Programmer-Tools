@@ -9,6 +9,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 from services.errors import ServiceError
 from utils.encoding import read_lines_with_fallback
+from utils.paths import resource_path
 from utils.sort import natural_sort_key
 
 
@@ -403,7 +404,7 @@ def generate_npm_feeder_import_file(mapping_path, template_path, output_path):
     if mapping_file.suffix.lower() not in {".xlsx", ".xlsm"}:
         raise ServiceError("Input feeder mapping harus file Excel .xlsx/.xlsm.", title="Format tidak valid")
 
-    template = Path(_clean_path(template_path)) if template_path else Path("assets/npm_base_template.txt")
+    template = Path(_clean_path(template_path)) if template_path else Path(resource_path("assets/npm_base_template.txt"))
     if not template.is_file():
         raise ServiceError(f"Template program NPM tidak ditemukan:\n{template}", title="File tidak ditemukan")
     if template.suffix.lower() not in {".txt", ".crb"} and template.name != "npm_base_template.txt":
