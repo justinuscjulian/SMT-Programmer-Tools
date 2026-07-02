@@ -238,7 +238,7 @@ def generate_plan(config: PlanConfig):
 
 def _process_first_plan(output_ws, previous_ws, history_index):
     output_blocks = _find_plan_blocks(output_ws)
-    previous_lookup = _build_lookup_by_block(previous_ws, key_col=3, value_col=22)
+    previous_lookup = _build_lookup_by_block(previous_ws, key_col=3, value_col=22, extra_cols=(7, 16))
     result = PlanProcessResult()
 
     for block in output_blocks:
@@ -256,8 +256,25 @@ def _process_first_plan(output_ws, previous_ws, history_index):
                 continue
 
             target_cell.Value = matched["value"]
-            _set_grey_fill(target_cell)
-            _set_grey_fill(output_ws.Cells(row, 7))
+            
+            prev_col_g = matched["extra_cells"][7]
+            try:
+                is_transparent = (prev_col_g.Interior.Pattern == XL_NONE)
+            except Exception:
+                is_transparent = False
+
+            if is_transparent:
+                _copy_fill(matched["value_cell"], target_cell)
+                _copy_fill(prev_col_g, output_ws.Cells(row, 7))
+                
+                prev_col_p = matched["extra_cells"][16]
+                target_col_p = output_ws.Cells(row, 16)
+                target_col_p.Value = prev_col_p.Value
+                _copy_fill(prev_col_p, target_col_p)
+            else:
+                _set_grey_fill(target_cell)
+                _set_grey_fill(output_ws.Cells(row, 7))
+                
             result.matched_count += 1
 
     _clear_column_borders(output_ws, 22)
