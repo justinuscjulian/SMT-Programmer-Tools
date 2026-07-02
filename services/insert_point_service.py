@@ -8,9 +8,17 @@ from datetime import datetime
 from pathlib import Path
 
 from services.errors import ServiceError
+from services.used_part_component_service import (
+    _excel_files_in_folder,
+    _extract_program_name,
+    _map_pcb_folders,
+    _parse_pcb_part_numbers,
+)
 
 
 EXCEL_EXTENSIONS = (".xls", ".xlsx", ".xlsm", ".xlsb")
+MODE_PLAN = "plan"
+MODE_PCB_LIST = "pcb_list"
 XL_CALCULATION_MANUAL = -4135
 XL_CALCULATION_AUTOMATIC = -4105
 XLSX_FILE_FORMAT = 51
@@ -19,11 +27,13 @@ COM_BUSY_HRESULTS = {-2147418111, -2147417846, -2147417845}
 
 @dataclass
 class InsertPointConfig:
-    plan_path: str
-    main_folder: str
-    start_row: int
-    end_row: int
-    output_path: str
+    plan_path: str = ""
+    main_folder: str = ""
+    start_row: int = 2
+    end_row: int = 100
+    output_path: str = ""
+    mode: str = MODE_PLAN
+    pcb_part_numbers: str = ""
 
 
 @dataclass
@@ -33,7 +43,9 @@ class InsertPointResult:
     error_count: int
 
 
-def suggest_output_name():
+def suggest_output_name(mode=MODE_PLAN):
+    if mode == MODE_PCB_LIST:
+        return f"DATA INSERT POINT PCB FOLDER ({datetime.now().strftime('%d-%m-%Y')}).xlsx"
     return f"DATA INSERT POINT ({datetime.now().strftime('%d-%m-%Y')}).xlsx"
 
 
@@ -63,71 +75,19 @@ def generate_insert_point(config: InsertPointConfig):
         _configure_excel_for_background(excel)
 
         with tempfile.TemporaryDirectory(prefix="smt_insert_point_") as temp_dir:
-            plan_wb = _open_workbook(
-                excel,
-                config.plan_path,
-                ReadOnly=True,
-            )
-            ws_plan = _excel_call(lambda: plan_wb.ActiveSheet)
-
-            for row in range(config.start_row, config.end_row + 1):
-                part_num = str(_cell_value(ws_plan, row, "G") or "").strip()
-                if not part_num:
-                    continue
-
-                model_name = str(_cell_value(ws_plan, row, "D") or "").strip()
-                pcb_num = str(_cell_value(ws_plan, row, "I") or "").strip()
-
-                if "." in model_name:
-                    model_name = model_name.split(".")[0]
-
-                num_only = extract_num_only(part_num)
-
-                if not pcb_num:
-                    errors.append([part_num, pcb_num, "", "PCB Part Number kosong di kolom I"])
-                    continue
-
-                if not num_only:
-                    errors.append([part_num, pcb_num, "", "Part Number tidak mengandung angka untuk pencarian file"])
-                    continue
-
-                target_file = find_target_file(config.main_folder, pcb_num, num_only)
-
-                if not target_file:
-                    errors.append([part_num, pcb_num, "", f"File tidak ditemukan. Dicari pakai angka: {num_only}"])
-                    continue
-
-                wb_prog = None
-                temp_path = None
-
+            if config.mode == MODE_PCB_LIST:
+                success, errors = _collect_from_pcb_list(excel, config, temp_dir)
+            else:
+                plan_wb = _open_workbook(
+                    excel,
+                    config.plan_path,
+                    ReadOnly=True,
+                )
                 try:
-                    wb_prog, temp_path = open_workbook_robust(excel, target_file, temp_dir)
-
-                    try:
-                        ws_dx = _excel_call(lambda: wb_prog.Worksheets("DX"))
-                    except Exception:
-                        errors.append([part_num, pcb_num, target_file, "Sheet 'DX' tidak ada"])
-                        continue
-
-                    insert_val = _range_value(ws_dx, "T9")
-
-                    if insert_val is None or str(insert_val).strip() == "":
-                        errors.append([part_num, pcb_num, target_file, "Cell T9 kosong"])
-                    else:
-                        success.append([model_name, part_num, pcb_num, insert_val])
-
-                except Exception as exc:
-                    errors.append([part_num, pcb_num, target_file, f"Gagal membuka/membaca file Excel: {exc}"])
-
+                    success, errors = _collect_from_plan(excel, plan_wb, config, temp_dir)
                 finally:
-                    if wb_prog:
-                        _close_workbook(wb_prog)
-
-                    if temp_path and os.path.exists(temp_path):
-                        os.remove(temp_path)
-
-            _close_workbook(plan_wb)
-            plan_wb = None
+                    _close_workbook(plan_wb)
+                    plan_wb = None
 
             out_wb = _excel_call(lambda: excel.Workbooks.Add())
             _write_output_workbook(out_wb, success, errors)
@@ -149,6 +109,123 @@ def generate_insert_point(config: InsertPointConfig):
         pythoncom.CoUninitialize()
 
     return InsertPointResult(str(output_path), len(success), len(errors))
+
+
+def _collect_from_plan(excel, plan_wb, config, temp_dir):
+    success = []
+    errors = []
+    ws_plan = _excel_call(lambda: plan_wb.ActiveSheet)
+
+    for row in range(config.start_row, config.end_row + 1):
+        part_num = str(_cell_value(ws_plan, row, "G") or "").strip()
+        if not part_num:
+            continue
+
+        model_name = str(_cell_value(ws_plan, row, "D") or "").strip()
+        pcb_num = str(_cell_value(ws_plan, row, "I") or "").strip()
+
+        if "." in model_name:
+            model_name = model_name.split(".")[0]
+
+        num_only = extract_num_only(part_num)
+
+        if not pcb_num:
+            errors.append([part_num, pcb_num, "", "PCB Part Number kosong di kolom I"])
+            continue
+
+        if not num_only:
+            errors.append([part_num, pcb_num, "", "Part Number tidak mengandung angka untuk pencarian file"])
+            continue
+
+        target_file = find_target_file(config.main_folder, pcb_num, num_only)
+
+        if not target_file:
+            errors.append([part_num, pcb_num, "", f"File tidak ditemukan. Dicari pakai angka: {num_only}"])
+            continue
+
+        _read_insert_point_file(
+            excel=excel,
+            source_file=target_file,
+            temp_dir=temp_dir,
+            model_name=model_name,
+            part_num=part_num,
+            pcb_num=pcb_num,
+            success=success,
+            errors=errors,
+        )
+
+    return success, errors
+
+
+def _collect_from_pcb_list(excel, config, temp_dir):
+    success = []
+    errors = []
+    main_folder = Path(config.main_folder)
+    pcb_numbers = _parse_pcb_part_numbers(config.pcb_part_numbers)
+    folder_map = _map_pcb_folders(main_folder, pcb_numbers)
+
+    for pcb_num in pcb_numbers:
+        matched_folders = folder_map.get(pcb_num, [])
+        if not matched_folders:
+            errors.append(["", pcb_num, "", "Folder PCB tidak ditemukan"])
+            continue
+
+        for pcb_folder in matched_folders:
+            program_files = _excel_files_in_folder(pcb_folder)
+            if not program_files:
+                errors.append(["", pcb_num, str(pcb_folder), "Tidak ada file Excel program di folder PCB"])
+                continue
+
+            for program_file in program_files:
+                _read_insert_point_file(
+                    excel=excel,
+                    source_file=str(program_file),
+                    temp_dir=temp_dir,
+                    model_name=_extract_model_name(program_file.name),
+                    part_num=_extract_program_name(program_file.name),
+                    pcb_num=pcb_num,
+                    success=success,
+                    errors=errors,
+                )
+
+    return success, errors
+
+
+def _read_insert_point_file(excel, source_file, temp_dir, model_name, part_num, pcb_num, success, errors):
+    wb_prog = None
+    temp_path = None
+
+    try:
+        wb_prog, temp_path = open_workbook_robust(excel, source_file, temp_dir)
+
+        try:
+            ws_dx = _excel_call(lambda: wb_prog.Worksheets("DX"))
+        except Exception:
+            errors.append([part_num, pcb_num, source_file, "Sheet 'DX' tidak ada"])
+            return
+
+        insert_val = _range_value(ws_dx, "T9")
+
+        if insert_val is None or str(insert_val).strip() == "":
+            errors.append([part_num, pcb_num, source_file, "Cell T9 kosong"])
+        else:
+            success.append([model_name, part_num, pcb_num, insert_val])
+
+    except Exception as exc:
+        errors.append([part_num, pcb_num, source_file, f"Gagal membuka/membaca file Excel: {exc}"])
+
+    finally:
+        if wb_prog:
+            _close_workbook(wb_prog)
+
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
+
+
+def _extract_model_name(filename):
+    stem = Path(filename).stem
+    before_parenthesis = stem.split("(", 1)[0].strip(" ._-")
+    return before_parenthesis or stem
 
 
 def extract_num_only(text):
@@ -348,22 +425,27 @@ def _restore_and_quit_excel(excel):
 
 
 def _validate_config(config):
-    if not config.plan_path:
-        raise ServiceError("File Excel PLAN belum dipilih.", title="Input belum lengkap")
-    if not Path(config.plan_path).is_file():
-        raise ServiceError(f"File Excel PLAN tidak ditemukan:\n{config.plan_path}", title="File tidak ditemukan")
-    if not is_excel_file(config.plan_path):
-        raise ServiceError("File PLAN harus berupa Excel (.xlsx, .xlsm, .xls, .xlsb).", title="Format tidak valid")
+    if config.mode not in {MODE_PLAN, MODE_PCB_LIST}:
+        raise ServiceError("Mode Insert Point tidak valid.", title="Input tidak valid")
+
+    if config.mode == MODE_PLAN:
+        if not config.plan_path:
+            raise ServiceError("File Excel PLAN belum dipilih.", title="Input belum lengkap")
+        if not Path(config.plan_path).is_file():
+            raise ServiceError(f"File Excel PLAN tidak ditemukan:\n{config.plan_path}", title="File tidak ditemukan")
+        if not is_excel_file(config.plan_path):
+            raise ServiceError("File PLAN harus berupa Excel (.xlsx, .xlsm, .xls, .xlsb).", title="Format tidak valid")
+        if config.start_row < 1 or config.end_row < 1:
+            raise ServiceError("Start Row dan End Row minimal 1.", title="Range row tidak valid")
+        if config.end_row < config.start_row:
+            raise ServiceError("End Row tidak boleh lebih kecil dari Start Row.", title="Range row tidak valid")
+    elif not _parse_pcb_part_numbers(config.pcb_part_numbers):
+        raise ServiceError("List PCB Part Number belum diisi.", title="Input belum lengkap")
 
     if not config.main_folder:
         raise ServiceError("Folder Induk PCB belum dipilih.", title="Input belum lengkap")
     if not Path(config.main_folder).is_dir():
         raise ServiceError(f"Folder Induk PCB tidak ditemukan:\n{config.main_folder}", title="Folder tidak ditemukan")
-
-    if config.start_row < 1 or config.end_row < 1:
-        raise ServiceError("Start Row dan End Row minimal 1.", title="Range row tidak valid")
-    if config.end_row < config.start_row:
-        raise ServiceError("End Row tidak boleh lebih kecil dari Start Row.", title="Range row tidak valid")
 
     if not config.output_path:
         raise ServiceError("Lokasi output belum dipilih.", title="Input belum lengkap")

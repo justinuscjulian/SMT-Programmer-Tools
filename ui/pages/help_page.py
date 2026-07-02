@@ -272,15 +272,16 @@ HELP_SECTIONS = [
     },
     {
         "title": "Get Insert Point",
-        "subtitle": "Ambil data Insert Point dari folder PCB berdasarkan PLAN.",
+        "subtitle": "Ambil data Insert Point dari folder PCB berdasarkan PLAN atau list PCB Part Number.",
         "steps": [
             "Buka Other Tools lalu pilih Get Insert Point.",
-            "Pilih Excel PLAN.",
-            "Pilih Folder Induk PCB.",
-            "Atur Start Row dan End Row sesuai range PLAN yang ingin diproses.",
+            "Pilih Mode 1 untuk proses dari Excel PLAN, atau Mode 2 untuk proses langsung dari list PCB Part Number.",
+            "Untuk Mode 1, pilih Excel PLAN, pilih Folder Induk PCB, lalu atur Start Row dan End Row sesuai range PLAN yang ingin diproses.",
+            "Untuk Mode 2, pilih Folder Induk PCB lalu paste PCB Part Number satu per baris.",
             "Klik Generate Insert Point dan tentukan lokasi output.",
         ],
         "notes": [
+            "Mode 2 otomatis mencari folder PCB yang cocok dengan list PCB Part Number, lalu membaca semua file Excel program di folder tersebut.",
             "Dialog selesai menampilkan jumlah berhasil dan error.",
             "Periksa output Excel untuk melihat detail hasil tiap row.",
         ],

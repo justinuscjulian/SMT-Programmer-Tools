@@ -1,5 +1,4 @@
 import math
-import os
 import re
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -17,6 +16,7 @@ from services.component_usage_finder_service import (
     parse_pcb_part_number,
 )
 from services.errors import ServiceError
+from services.io_helpers import open_pandas_excel_file, scan_recursive_files
 
 
 EXCEL_EXTENSIONS = (".xls", ".xlsx", ".xlsm")
@@ -326,16 +326,33 @@ def _read_bom_parts_pandas(path):
             title="Dependency belum lengkap",
         ) from exc
 
-    excel = pd.ExcelFile(path, engine="xlrd")
+    excel = open_pandas_excel_file(pd, path)
     try:
         sheet_name = _find_sheet_case_insensitive(excel.sheet_names, TARGET_SHEET_NAME)
         if sheet_name is None:
             raise ServiceError('Sheet "BOM" tidak ditemukan.', title="Format Excel tidak valid")
-        dataframe = pd.read_excel(excel, sheet_name=sheet_name, header=None, dtype=object, na_filter=False)
+        try:
+            dataframe = pd.read_excel(
+                excel,
+                sheet_name=sheet_name,
+                header=None,
+                dtype=object,
+                na_filter=False,
+                usecols="C:F",
+            )
+            compact_columns = True
+        except ValueError:
+            dataframe = pd.read_excel(excel, sheet_name=sheet_name, header=None, dtype=object, na_filter=False)
+            compact_columns = False
+
         values = []
         for _, row in dataframe.iterrows():
-            part_value = row.iloc[2] if len(row) > 2 else None
-            marker_value = row.iloc[5] if len(row) > 5 else None
+            if compact_columns:
+                part_value = row.iloc[0] if len(row) > 0 else None
+                marker_value = row.iloc[3] if len(row) > 3 else None
+            else:
+                part_value = row.iloc[2] if len(row) > 2 else None
+                marker_value = row.iloc[5] if len(row) > 5 else None
             if _is_na_marker(marker_value):
                 continue
             values.append(part_value)
@@ -381,7 +398,7 @@ def _read_feeder_records_pandas(path):
             title="Dependency belum lengkap",
         ) from exc
 
-    excel = pd.ExcelFile(path, engine="xlrd")
+    excel = open_pandas_excel_file(pd, path)
     try:
         sheet_name = "Detailed Feeder Setup" if "Detailed Feeder Setup" in excel.sheet_names else excel.sheet_names[0]
         dataframe = pd.read_excel(excel, sheet_name=sheet_name, header=None, dtype=object, na_filter=False)
@@ -567,22 +584,7 @@ def _style_sheet(worksheet, freeze="A2"):
 
 
 def _find_excel_files(source_folder):
-    files = []
-    errors = []
-
-    def on_error(error):
-        errors.append(f"{getattr(error, 'filename', '')}: {getattr(error, 'strerror', error)}")
-
-    for current_folder, dir_names, file_names in os.walk(source_folder, onerror=on_error):
-        dir_names.sort(key=lambda name: name.upper())
-        for file_name in sorted(file_names, key=lambda name: name.upper()):
-            if file_name.startswith("~$"):
-                continue
-            ext = os.path.splitext(file_name)[1].lower()
-            if ext in EXCEL_EXTENSIONS:
-                files.append(Path(current_folder) / file_name)
-
-    return files, errors
+    return scan_recursive_files(source_folder, EXCEL_EXTENSIONS, skip_prefixes=("~$",))
 
 
 def _clean_part_values(values):

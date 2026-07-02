@@ -1,18 +1,27 @@
 from pathlib import Path
 
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QFileDialog,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QRadioButton,
     QSpinBox,
     QVBoxLayout,
 )
 
-from services.insert_point_service import InsertPointConfig, generate_insert_point, suggest_output_name
+from services.insert_point_service import (
+    MODE_PCB_LIST,
+    MODE_PLAN,
+    InsertPointConfig,
+    generate_insert_point,
+    suggest_output_name,
+)
 from ui.pages.base import WorkerPage
 from widgets.card import Card
 from widgets.file_picker import FilePicker
@@ -38,6 +47,25 @@ class InsertPointPage(WorkerPage):
         header.addWidget(self.status_label)
         root.addLayout(header)
 
+        mode_card = Card()
+        mode_title = QLabel("Input Mode")
+        mode_title.setObjectName("SectionTitle")
+        mode_card.layout.addWidget(mode_title)
+
+        mode_row = QHBoxLayout()
+        self.plan_mode_radio = QRadioButton("Mode 1 - From Excel PLAN")
+        self.pcb_list_mode_radio = QRadioButton("Mode 2 - PCB Part Number List")
+        self.plan_mode_radio.setChecked(True)
+        self.mode_group = QButtonGroup(self)
+        self.mode_group.addButton(self.plan_mode_radio)
+        self.mode_group.addButton(self.pcb_list_mode_radio)
+        self.plan_mode_radio.toggled.connect(self._sync_mode_ui)
+        mode_row.addWidget(self.plan_mode_radio)
+        mode_row.addWidget(self.pcb_list_mode_radio)
+        mode_row.addStretch(1)
+        mode_card.layout.addLayout(mode_row)
+        root.addWidget(mode_card)
+
         source_card = Card()
         source_title = QLabel("Source Data")
         source_title.setObjectName("SectionTitle")
@@ -49,20 +77,28 @@ class InsertPointPage(WorkerPage):
         self.pcb_folder_picker.browse_requested.connect(self.browse_pcb_folder)
         source_card.layout.addWidget(self.plan_picker)
         source_card.layout.addWidget(self.pcb_folder_picker)
+
+        self.pcb_list_label = QLabel("PCB Part Number List")
+        self.pcb_list_label.setObjectName("MutedLabel")
+        self.pcb_list_input = QPlainTextEdit()
+        self.pcb_list_input.setPlaceholderText("Paste PCB part number, satu baris satu part number")
+        self.pcb_list_input.setMinimumHeight(110)
+        source_card.layout.addWidget(self.pcb_list_label)
+        source_card.layout.addWidget(self.pcb_list_input)
         root.addWidget(source_card)
 
-        range_card = Card()
+        self.range_card = Card()
         range_title = QLabel("Row Range")
         range_title.setObjectName("SectionTitle")
-        range_card.layout.addWidget(range_title)
+        self.range_card.layout.addWidget(range_title)
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(10)
         self.start_row_spin = self._add_spinbox(grid, 0, 0, "Start Row", 2)
         self.end_row_spin = self._add_spinbox(grid, 0, 2, "End Row", 100)
-        range_card.layout.addLayout(grid)
-        root.addWidget(range_card)
+        self.range_card.layout.addLayout(grid)
+        root.addWidget(self.range_card)
 
         action_bar = QHBoxLayout()
         self.generate_btn = QPushButton("Generate Insert Point")
@@ -86,7 +122,14 @@ class InsertPointPage(WorkerPage):
             self.clear_btn,
             self.plan_picker.button,
             self.pcb_folder_picker.button,
+            self.pcb_list_input,
+            self.start_row_spin,
+            self.end_row_spin,
+            self.plan_mode_radio,
+            self.pcb_list_mode_radio,
         )
+
+        self._sync_mode_ui()
 
     def _add_spinbox(self, grid, row, column, label_text, value):
         label = QLabel(label_text)
@@ -120,7 +163,7 @@ class InsertPointPage(WorkerPage):
         output_path, _ = QFileDialog.getSaveFileName(
             self,
             "Save Insert Point Data",
-            suggest_output_name(),
+            suggest_output_name(self._selected_mode()),
             "Excel Workbook (*.xlsx)",
         )
         if not output_path:
@@ -145,38 +188,58 @@ class InsertPointPage(WorkerPage):
 
     def _config(self, output_path):
         return InsertPointConfig(
+            mode=self._selected_mode(),
             plan_path=self.plan_picker.path(),
             main_folder=self.pcb_folder_picker.path(),
             start_row=self.start_row_spin.value(),
             end_row=self.end_row_spin.value(),
             output_path=output_path,
+            pcb_part_numbers=self.pcb_list_input.toPlainText(),
         )
+
+    def _selected_mode(self):
+        return MODE_PLAN if self.plan_mode_radio.isChecked() else MODE_PCB_LIST
 
     def _validate_before_save(self):
         plan_path = self.plan_picker.path()
         folder_path = self.pcb_folder_picker.path()
 
-        if not plan_path:
-            QMessageBox.warning(self, "Input belum lengkap", "File Excel PLAN belum dipilih.")
+        if self._selected_mode() == MODE_PLAN:
+            if not plan_path:
+                QMessageBox.warning(self, "Input belum lengkap", "File Excel PLAN belum dipilih.")
+                return False
+            if not Path(plan_path).is_file():
+                QMessageBox.warning(self, "File tidak ditemukan", f"File Excel PLAN tidak ditemukan:\n{plan_path}")
+                return False
+            if self.end_row_spin.value() < self.start_row_spin.value():
+                QMessageBox.warning(self, "Range row tidak valid", "End Row tidak boleh lebih kecil dari Start Row.")
+                return False
+        elif not self.pcb_list_input.toPlainText().strip():
+            QMessageBox.warning(self, "Input belum lengkap", "List PCB Part Number belum diisi.")
             return False
-        if not Path(plan_path).is_file():
-            QMessageBox.warning(self, "File tidak ditemukan", f"File Excel PLAN tidak ditemukan:\n{plan_path}")
-            return False
+
         if not folder_path:
             QMessageBox.warning(self, "Input belum lengkap", "Folder Induk PCB belum dipilih.")
             return False
         if not Path(folder_path).is_dir():
             QMessageBox.warning(self, "Folder tidak ditemukan", f"Folder Induk PCB tidak ditemukan:\n{folder_path}")
             return False
-        if self.end_row_spin.value() < self.start_row_spin.value():
-            QMessageBox.warning(self, "Range row tidak valid", "End Row tidak boleh lebih kecil dari Start Row.")
-            return False
 
         return True
+
+    def _sync_mode_ui(self):
+        is_plan_mode = self._selected_mode() == MODE_PLAN
+        self.plan_picker.setVisible(is_plan_mode)
+        self.range_card.setVisible(is_plan_mode)
+        self.pcb_list_label.setVisible(not is_plan_mode)
+        self.pcb_list_input.setVisible(not is_plan_mode)
+        self.status_label.setText("")
+        self.status_label.setToolTip("")
 
     def clear_form(self):
         self.plan_picker.clear()
         self.pcb_folder_picker.clear()
+        self.pcb_list_input.clear()
         self.start_row_spin.setValue(2)
         self.end_row_spin.setValue(100)
         self.status_label.setText("")

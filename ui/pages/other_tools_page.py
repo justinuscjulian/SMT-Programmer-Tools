@@ -131,7 +131,7 @@ class OtherToolsPage(QWidget):
             (
                 "insert_point_button",
                 "Get Insert Point",
-                "Ambil data Insert Point dari folder PCB",
+                "Ambil Insert Point dari PLAN atau list PCB",
                 "insert_point",
                 self.open_insert_point,
             ),

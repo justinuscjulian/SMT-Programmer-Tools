@@ -1,5 +1,4 @@
 import math
-import os
 import re
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -11,6 +10,7 @@ from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 
 from services.errors import ServiceError
+from services.io_helpers import open_pandas_excel_file, scan_recursive_files
 
 
 EXCEL_EXTENSIONS = (".xls", ".xlsx", ".xlsm")
@@ -348,7 +348,7 @@ def _read_bom_pandas(path, target_key):
         ) from exc
 
     try:
-        excel = pd.ExcelFile(path, engine="xlrd")
+        excel = open_pandas_excel_file(pd, path)
     except ImportError as exc:
         raise ServiceError(
             "File .xls membutuhkan library xlrd. Jalankan install dependency dari requirements.txt.",
@@ -385,22 +385,7 @@ def _read_bom_pandas(path, target_key):
 
 
 def _find_excel_files(source_folder):
-    files = []
-    errors = []
-
-    def on_error(error):
-        errors.append(f"{getattr(error, 'filename', '')}: {getattr(error, 'strerror', error)}")
-
-    for current_folder, dir_names, file_names in os.walk(source_folder, onerror=on_error):
-        dir_names.sort(key=lambda name: name.upper())
-        for file_name in sorted(file_names, key=lambda name: name.upper()):
-            if file_name.startswith("~$"):
-                continue
-            ext = os.path.splitext(file_name)[1].lower()
-            if ext in EXCEL_EXTENSIONS:
-                files.append(Path(current_folder) / file_name)
-
-    return files, errors
+    return scan_recursive_files(source_folder, EXCEL_EXTENSIONS, skip_prefixes=("~$",))
 
 
 def _find_sheet_case_insensitive(sheet_names, target_name):
