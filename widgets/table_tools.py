@@ -66,7 +66,7 @@ def configure_table(table: QTableView, model, wrap_headers=False):
         table.setColumnWidth(idx, column.width)
 
 
-def install_copy_menu(table, model, clean_copy=False, allow_cell_column=False, copy_all_excluded_keys=None):
+def install_copy_menu(table, model, clean_copy=False, allow_cell_column=False, copy_all_excluded_keys=None, copy_all_include_headers=True, copy_all_sort_keys=None):
     table.setContextMenuPolicy(Qt.CustomContextMenu)
 
     def selected_row_numbers():
@@ -87,9 +87,13 @@ def install_copy_menu(table, model, clean_copy=False, allow_cell_column=False, c
         copy_text(model.selected_rows_as_tsv(rows, include_headers=True, clean_copy=False))
 
     def copy_all():
+        rows_to_copy = model.records
+        if copy_all_sort_keys:
+            rows_to_copy = sorted(rows_to_copy, key=lambda row: tuple(str(row.get(k, "")).upper() for k in copy_all_sort_keys))
         copy_text(
-            model.all_as_tsv(
-                include_headers=True,
+            model.records_as_tsv(
+                rows_to_copy,
+                include_headers=copy_all_include_headers,
                 clean_copy=clean_copy,
                 excluded_keys=copy_all_excluded_keys,
             )
