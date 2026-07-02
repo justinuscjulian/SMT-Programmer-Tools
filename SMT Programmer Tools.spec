@@ -10,7 +10,7 @@ a = Analysis(
     ["main.py"],
     pathex=[str(project_dir)],
     binaries=[],
-    datas=[("assets/app_logo.ico", "assets")],
+    datas=[("assets/*", "assets")],
     hiddenimports=[
         "openpyxl",
         "pandas",

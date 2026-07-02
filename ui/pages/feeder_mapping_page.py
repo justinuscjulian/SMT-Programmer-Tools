@@ -475,8 +475,7 @@ class FeederMappingPage(WorkerPage):
             QMessageBox.warning(self, "Input belum lengkap", "Feeder Mapping Excel belum dipilih.")
             return
         if not template_path:
-            QMessageBox.warning(self, "Input belum lengkap", "Template Program NPM belum dipilih.")
-            return
+            template_path = ""
 
         output_path, _ = QFileDialog.getSaveFileName(
             self,
@@ -653,7 +652,7 @@ class FeederMappingPage(WorkerPage):
         is_import = self._is_import_mode()
         if is_import:
             self.source_picker.label.setText("Feeder Mapping Excel (.xlsx):")
-            self.reference_picker.label.setText("NPM Program Template (.crb/.txt):")
+            self.reference_picker.label.setText("NPM Program Template (Optional, kosongkan untuk auto):")
             self.source_picker.button.setText("Browse")
             self.reference_picker.button.setText("Browse")
         elif is_cm602_feeder_fix:
@@ -695,7 +694,7 @@ class FeederMappingPage(WorkerPage):
         self.preview_search_input.setEnabled(not is_multiple and not is_import and not is_cm602_program_cm_txt and not is_cm602_feeder_fix)
         if is_import:
             self.generate_btn.setText("Generate Feeder TXT")
-            self.generate_btn.setEnabled(bool(self.source_picker.path()) and bool(self.reference_picker.path()))
+            self.generate_btn.setEnabled(bool(self.source_picker.path()))
         elif is_cm602_program_cm_txt:
             self.generate_btn.setText("Generate CM.txt")
             self.generate_btn.setEnabled(bool(self.source_picker.path()))

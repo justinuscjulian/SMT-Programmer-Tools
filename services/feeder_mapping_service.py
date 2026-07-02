@@ -403,10 +403,10 @@ def generate_npm_feeder_import_file(mapping_path, template_path, output_path):
     if mapping_file.suffix.lower() not in {".xlsx", ".xlsm"}:
         raise ServiceError("Input feeder mapping harus file Excel .xlsx/.xlsm.", title="Format tidak valid")
 
-    template = Path(_clean_path(template_path))
+    template = Path(_clean_path(template_path)) if template_path else Path("assets/npm_base_template.txt")
     if not template.is_file():
         raise ServiceError(f"Template program NPM tidak ditemukan:\n{template}", title="File tidak ditemukan")
-    if template.suffix.lower() not in VALID_NPM_EXPORT_SUFFIXES:
+    if template.suffix.lower() not in {".txt", ".crb"} and template.name != "npm_base_template.txt":
         raise ServiceError("Template NPM harus file .txt atau .crb.", title="Format tidak valid")
 
     output = Path(output_path)
@@ -423,6 +423,28 @@ def generate_npm_feeder_import_file(mapping_path, template_path, output_path):
     part_lookup_by_id = _build_lookup(part_rows, "IDNUM")
     feeder_lookup = _build_lookup(_read_section_rows(template_lines, "FeederData"), "IDNUM")
     template_assignments = _existing_fixed_assignments(fixed_rows, part_lookup_by_id, feeder_lookup)
+    
+    is_auto = not bool(template_path)
+    if is_auto:
+        max_idnum = max([int(float(str(r.get("IDNUM", 0)))) for r in part_rows if str(r.get("IDNUM", "")).replace(".", "", 1).isdigit()], default=0)
+        for record in mapping_records:
+            part_key = _part_key(record["part_number"])
+            if part_key not in part_lookup:
+                max_idnum += 1
+                new_row = {
+                    "IDNUM": str(max_idnum),
+                    "NAME": f'"{record["part_number"]}"',
+                    "LNAME": '"ohm"',
+                    "REELS": "1",
+                    "SKIP": "0",
+                    "NoAutoDivide": "0",
+                    "Alt": "0",
+                    "AltNum": "0",
+                    "NoArrange": "0",
+                }
+                part_rows.append(new_row)
+                part_lookup[part_key] = new_row
+
     new_fixed_rows = [_empty_fixed_import_row(row) for row in fixed_rows]
     fixed_by_pu = {str(row.get("PU", "")).strip(): row for row in new_fixed_rows}
 
@@ -459,6 +481,7 @@ def generate_npm_feeder_import_file(mapping_path, template_path, output_path):
             feeder_lookup,
             record["uses_lr_position"],
             template_assignments,
+            is_auto,
         )
         if not feeder_id:
             label = "compact L/R" if record["uses_lr_position"] else "non L/R"
@@ -476,7 +499,7 @@ def generate_npm_feeder_import_file(mapping_path, template_path, output_path):
         assigned_part_keys.add(part_key)
         assignment_count += 1
 
-    output_lines = _replace_feeder_import_sections(template_lines, fixed_header, new_fixed_rows)
+    output_lines = _replace_feeder_import_sections(template_lines, fixed_header, new_fixed_rows, part_rows if is_auto else None)
     with output.open("w", encoding=encoding, newline="") as handle:
         handle.writelines(output_lines)
 
@@ -802,10 +825,15 @@ def _build_part_lookup_by_name(parts_rows):
     return lookup
 
 
-def _feeder_id_for_import_location(part_key, part_row, feeder_lookup, uses_lr_position, template_assignments):
+def _feeder_id_for_import_location(part_key, part_row, feeder_lookup, uses_lr_position, template_assignments, is_auto=False):
     candidates = _part_feeder_candidates(part_row, feeder_lookup)
     if not candidates:
         candidates = _template_feeder_candidates(part_key, feeder_lookup, template_assignments)
+
+    if not candidates and is_auto:
+        inferred = _infer_npm_feeder_id(part_key)
+        if inferred in feeder_lookup:
+            candidates = [(inferred, feeder_lookup[inferred])]
 
     if uses_lr_position:
         for feeder_id, feeder_row in candidates:
@@ -817,6 +845,46 @@ def _feeder_id_for_import_location(part_key, part_row, feeder_lookup, uses_lr_po
         if _feeder_kind(feeder_row) != 2:
             return feeder_id
     return ""
+
+def _infer_npm_feeder_id(part_number):
+    key = _part_key(part_number)
+    if not key:
+        return "302481"
+    
+    if key.startswith("0TRK"):
+        return "302502"
+    if key.startswith("0CZZ"):
+        return "302481"
+    if key.startswith("0RH"):
+        return "302482"
+    if key.startswith("0RJ"):
+        if re.match(r"^0RJ\d+D", key):
+            return "302482"
+        return "302481"
+    if key.startswith("0R"):
+        return "302481"
+
+    ceramic_match = re.match(r"^0C[CK]\d+([A-Z]{2})", key)
+    if ceramic_match:
+        package_code = ceramic_match.group(1)
+        if package_code in {"DC", "DD", "DK"}:
+            return "302502"
+        if package_code in {"CC", "CD", "CK"}:
+            return "302482"
+        return "302481"
+
+    if key.startswith(("EAN", "EBK")):
+        return "302502"
+    if key.startswith("EAH"):
+        return "302502"
+    if key.startswith("EAM"):
+        return "302482"
+    if key.startswith(("EAF", "EBC", "ERH")):
+        return "302481"
+    if key.startswith("EAE"):
+        return "302481"
+
+    return "302481"
 
 
 def _template_feeder_candidates(part_key, feeder_lookup, template_assignments):
@@ -885,13 +953,21 @@ def _occupy_import_location(record, occupied):
         occupied[key] = label
 
 
-def _replace_feeder_import_sections(lines, fixed_header, fixed_rows):
+def _replace_feeder_import_sections(lines, fixed_header, fixed_rows, part_rows=None):
     newline = _detect_newline(lines)
     output_lines = _replace_section_lines(
         lines,
         "FixedFeeder",
         _build_section_lines("FixedFeeder", fixed_header, fixed_rows, newline),
     )
+
+    if part_rows is not None and _has_section(output_lines, "PartsDataEx"):
+        part_header = _section_header(output_lines, "PartsDataEx")
+        output_lines = _replace_section_lines(
+            output_lines,
+            "PartsDataEx",
+            _build_section_lines("PartsDataEx", part_header, part_rows, newline),
+        )
 
     if _has_section(output_lines, "StockData"):
         stock_header = _section_header(output_lines, "StockData")
