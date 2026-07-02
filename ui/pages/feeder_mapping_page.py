@@ -522,27 +522,27 @@ class FeederMappingPage(WorkerPage):
 
         extra = []
         if result.missing_part_rows:
-            extra.append(f"Missing parts: {len(result.missing_part_rows)}")
+            extra.append("Komponen tidak ada di template")
         if result.missing_location_rows:
-            extra.append(f"Missing location: {len(result.missing_location_rows)}")
+            extra.append("Lokasi/Slot tidak ditemukan di template")
         if result.missing_feeder_rows:
-            extra.append(f"Missing feeder type: {len(result.missing_feeder_rows)}")
+            extra.append("Tipe feeder tidak cocok/tidak ditemukan")
         if result.conflict_rows:
-            extra.append(f"Conflicts: {len(result.conflict_rows)}")
+            extra.append("Bentrok dengan komponen lain di slot yang sama")
         if result.duplicate_rows:
-            extra.append(f"Duplicate rows skipped: {len(result.duplicate_rows)}")
-        extra_text = "\n" + "\n".join(extra) if extra else ""
+            extra.append("Baris duplikat diabaikan")
+        
+        failed_count = result.mapping_row_count - result.assignment_count
+        alasan_text = f"\nAlasan gagal: {', '.join(extra)}" if failed_count > 0 and extra else ""
 
         QMessageBox.information(
             self,
             "Excel to NPM Feeder TXT",
             (
-                f"Mapping: {result.mapping_file}\n"
-                f"Template: {result.template_file}\n"
-                f"Mapping rows: {result.mapping_row_count}\n"
-                f"Assigned rows: {result.assignment_count}\n"
-                f"Assigned parts: {result.assigned_part_count}{extra_text}\n"
-                f"File: {result.output_path}"
+                f"Jumlah komponen di Excel: {result.mapping_row_count}\n"
+                f"Yang berhasil masuk: {result.assignment_count}\n"
+                f"Gagal masuk: {failed_count}{alasan_text}\n\n"
+                f"Tersimpan di:\n{result.output_path}"
             ),
         )
 
