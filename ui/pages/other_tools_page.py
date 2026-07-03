@@ -13,7 +13,7 @@ from ui.pages.feeder_mapping_page import FeederMappingPage
 from ui.pages.insert_point_page import InsertPointPage
 from ui.pages.model_feeder_group_page import ModelFeederGroupPage
 from ui.pages.new_pcb_excel_page import NewPcbExcelPage
-from ui.pages.npm_feeder_compare_page import NpmFeederComparePage
+from ui.pages.feeder_compare_page import FeederComparePage
 from ui.pages.used_part_component_page import UsedPartComponentPage
 from ui.pages.worksheet_bom_compare_page import WorksheetBomComparePage
 from ui.pages.worksheet_page import WorksheetComparatorPage
@@ -39,7 +39,7 @@ class OtherToolsPage(QWidget):
         self.stack.addWidget(self._build_worksheet_page())
         self.stack.addWidget(self._build_worksheet_bom_page())
         self.stack.addWidget(self._build_feeder_mapping_page())
-        self.stack.addWidget(self._build_npm_feeder_compare_page())
+        self.stack.addWidget(self._build_feeder_compare_page())
         self.stack.addWidget(self._build_all_in_one_page())
         self.stack.addWidget(self._build_new_pcb_page())
         self.stack.addWidget(self._build_insert_point_page())
@@ -101,11 +101,11 @@ class OtherToolsPage(QWidget):
                 self.open_feeder_mapping,
             ),
             (
-                "npm_feeder_compare_button",
-                "NPM Feeder Compare",
-                "Compare setup feeder antara 2 export NPM",
+                "feeder_compare_button",
+                "Feeder Compare",
+                "Compare setup feeder (NPM & CM602)",
                 "feeder_compare",
-                self.open_npm_feeder_compare,
+                self.open_feeder_compare,
             ),
             (
                 "feeder_balancer_button",
@@ -257,24 +257,24 @@ class OtherToolsPage(QWidget):
         layout.addWidget(self.feeder_mapping_page, 1)
         return page
 
-    def _build_npm_feeder_compare_page(self):
+    def _build_feeder_compare_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
         top = QHBoxLayout()
-        self.back_npm_feeder_compare_button = QPushButton("Back to Tools")
-        self.back_npm_feeder_compare_button.clicked.connect(self.open_menu)
-        title = QLabel("NPM Feeder Compare")
+        self.back_feeder_compare_button = QPushButton("Back to Tools")
+        self.back_feeder_compare_button.clicked.connect(self.open_menu)
+        title = QLabel("Feeder Compare")
         title.setObjectName("TitleLabel")
-        top.addWidget(self.back_npm_feeder_compare_button)
+        top.addWidget(self.back_feeder_compare_button)
         top.addWidget(title)
         top.addStretch(1)
         layout.addLayout(top)
 
-        self.npm_feeder_compare_page = NpmFeederComparePage(self.thread_pool, self.theme_manager)
-        layout.addWidget(self.npm_feeder_compare_page, 1)
+        self.feeder_compare_page = FeederComparePage(self.thread_pool, self.theme_manager)
+        layout.addWidget(self.feeder_compare_page, 1)
         return page
 
     def _build_all_in_one_page(self):
@@ -555,7 +555,7 @@ class OtherToolsPage(QWidget):
     def open_feeder_mapping(self):
         self.stack.setCurrentIndex(3)
 
-    def open_npm_feeder_compare(self):
+    def open_feeder_compare(self):
         self.stack.setCurrentIndex(4)
 
     def _refresh_icons(self):
@@ -568,8 +568,8 @@ class OtherToolsPage(QWidget):
             self.back_worksheet_bom_button.setIcon(make_icon("arrow_left", theme["text"]))
         if hasattr(self, "back_feeder_mapping_button"):
             self.back_feeder_mapping_button.setIcon(make_icon("arrow_left", theme["text"]))
-        if hasattr(self, "back_npm_feeder_compare_button"):
-            self.back_npm_feeder_compare_button.setIcon(make_icon("arrow_left", theme["text"]))
+        if hasattr(self, "back_feeder_compare_button"):
+            self.back_feeder_compare_button.setIcon(make_icon("arrow_left", theme["text"]))
         if hasattr(self, "back_all_in_one_button"):
             self.back_all_in_one_button.setIcon(make_icon("arrow_left", theme["text"]))
         if hasattr(self, "back_new_pcb_button"):

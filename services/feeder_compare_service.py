@@ -5,7 +5,7 @@ from pathlib import Path
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-from services.feeder_mapping_service import load_feeder_mapping
+from services.feeder_mapping_service import load_feeder_mapping, load_cm602_feeder_mapping
 from utils.sort import natural_sort_key
 
 
@@ -33,7 +33,7 @@ RESULT_COLUMNS = [
 
 
 @dataclass
-class NpmFeederCompareResult:
+class FeederCompareResult:
     old_file: str
     new_file: str
     old_count: int
@@ -45,11 +45,16 @@ class NpmFeederCompareResult:
     del_count: int
 
 
-def compare_npm_feeder_files(old_path, new_path):
-    old_mapping = load_feeder_mapping(old_path)
-    new_mapping = load_feeder_mapping(new_path)
+def compare_feeder_files(old_path, new_path, old_parser="NPM", new_parser="NPM"):
+    def load_mapping(path, parser_type):
+        if parser_type == "CM602":
+            return load_cm602_feeder_mapping(path)
+        return load_feeder_mapping(path)
+        
+    old_mapping = load_mapping(old_path, old_parser)
+    new_mapping = load_mapping(new_path, new_parser)
     rows = compare_feeder_records(old_mapping.records, new_mapping.records)
-    return NpmFeederCompareResult(
+    return FeederCompareResult(
         old_file=old_mapping.source_file,
         new_file=new_mapping.source_file,
         old_count=old_mapping.row_count,
@@ -120,10 +125,10 @@ def compare_feeder_records(old_records, new_records):
 def suggest_export_name(old_path="", new_path=""):
     old_name = _clean_filename_part(Path(old_path or "Program_A").stem) or "Program_A"
     new_name = _clean_filename_part(Path(new_path or "Program_B").stem) or "Program_B"
-    return f"NPM_Feeder_Compare_{old_name}_vs_{new_name}.xlsx"
+    return f"Feeder_Compare_{old_name}_vs_{new_name}.xlsx"
 
 
-def export_npm_feeder_compare_result(result, output_path):
+def export_feeder_compare_result(result, output_path):
     output = Path(output_path)
     if output.suffix.lower() != ".xlsx":
         output = output.with_suffix(".xlsx")

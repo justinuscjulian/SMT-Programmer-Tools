@@ -16,15 +16,15 @@ from PySide6.QtWidgets import (
 )
 
 from models.table_model import ColumnSpec, RecordTableModel
-from services.npm_feeder_compare_service import (
+from services.feeder_compare_service import (
     STATUS_ADD,
     STATUS_CNG,
     STATUS_DEL,
     STATUS_FILTER_ALL,
     STATUS_MOVE,
     STATUS_OPTIONS,
-    compare_npm_feeder_files,
-    export_npm_feeder_compare_result,
+    compare_feeder_files,
+    export_feeder_compare_result,
     suggest_export_name,
 )
 from ui.pages.base import WorkerPage
@@ -34,7 +34,7 @@ from widgets.status_badge import StatusBadge
 from widgets.table_tools import configure_table, install_copy_menu
 
 
-class NpmFeederComparePage(WorkerPage):
+class FeederComparePage(WorkerPage):
     def __init__(self, thread_pool, theme_manager, parent=None):
         super().__init__(thread_pool, theme_manager, parent)
         self.compare_result = None
@@ -47,7 +47,7 @@ class NpmFeederComparePage(WorkerPage):
         root.setSpacing(12)
 
         header = QHBoxLayout()
-        title = QLabel("NPM Feeder Compare")
+        title = QLabel("Feeder Compare")
         title.setObjectName("SectionTitle")
         self.summary_label = QLabel("0 DIFF")
         self.summary_label.setObjectName("MutedLabel")
@@ -62,7 +62,21 @@ class NpmFeederComparePage(WorkerPage):
         source_card = Card()
         source_title = QLabel("Source Files")
         source_title.setObjectName("SectionTitle")
+        
+        mode_layout = QHBoxLayout()
+        mode_label = QLabel("Mode:")
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems([
+            "NPM vs NPM",
+            "NPM vs NPM Feeder TXT",
+            "CM602 vs CM602",
+            "CM602 vs CM602 Feeder TXT"
+        ])
+        mode_layout.addWidget(mode_label)
+        mode_layout.addWidget(self.mode_combo, 1)
+        
         source_card.layout.addWidget(source_title)
+        source_card.layout.addLayout(mode_layout)
         self.old_picker = FilePicker("Program A / Reference:")
         self.old_picker.browse_requested.connect(self.browse_old_file)
         self.new_picker = FilePicker("Program B / Target:")
@@ -163,28 +177,28 @@ class NpmFeederComparePage(WorkerPage):
             self.new_picker.button,
         )
 
+    def _browse_file(self, title):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            title,
+            "",
+            "All Supported Files (*.txt *.crb);;Text Files (*.txt);;NPM Export (*.crb);;All Files (*)",
+        )
+        return file_path
+
     def browse_old_file(self):
-        file_path = self._browse_npm_file("Select Program A / Reference NPM Export")
+        file_path = self._browse_file("Select Program A / Reference")
         if file_path:
             self.old_picker.set_path(file_path)
             self._clear_compare_output()
             self.status_label.setText("Program A selected")
 
     def browse_new_file(self):
-        file_path = self._browse_npm_file("Select Program B / Target NPM Export")
+        file_path = self._browse_file("Select Program B / Target")
         if file_path:
             self.new_picker.set_path(file_path)
             self._clear_compare_output()
             self.status_label.setText("Program B selected")
-
-    def _browse_npm_file(self, title):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            title,
-            "",
-            "NPM Export (*.txt);;Text Files (*.txt);;All Files (*)",
-        )
-        return file_path
 
     def compare_feed_data(self):
         if not self._validate_inputs():
@@ -192,14 +206,27 @@ class NpmFeederComparePage(WorkerPage):
 
         old_path = self.old_picker.path()
         new_path = self.new_picker.path()
+        
+        mode = self.mode_combo.currentText()
+        if mode == "NPM vs NPM":
+            old_parser, new_parser = "NPM", "NPM"
+        elif mode == "NPM vs NPM Feeder TXT":
+            old_parser, new_parser = "NPM", "NPM"
+        elif mode == "CM602 vs CM602":
+            old_parser, new_parser = "CM602", "CM602"
+        elif mode == "CM602 vs CM602 Feeder TXT":
+            old_parser, new_parser = "CM602", "CM602"
+        else:
+            old_parser, new_parser = "NPM", "NPM"
+            
         self.compare_result = None
         self.result_model.set_records([])
         self.copy_btn.setEnabled(False)
         self.export_btn.setEnabled(False)
         self.run_worker(
-            lambda old=old_path, new=new_path: compare_npm_feeder_files(old, new),
+            lambda o=old_path, n=new_path, op=old_parser, np=new_parser: compare_feeder_files(o, n, op, np),
             self._on_compare_done,
-            "Comparing NPM feeders...",
+            "Comparing feeders...",
         )
 
     def _on_compare_done(self, result):
@@ -219,7 +246,7 @@ class NpmFeederComparePage(WorkerPage):
         else:
             self.copy_btn.setEnabled(False)
             self.status_label.setText("All feeder setup match")
-            QMessageBox.information(self, "All Match", "Semua setup feeder NPM sudah match.")
+            QMessageBox.information(self, "All Match", "Semua setup feeder sudah match.")
 
     def apply_filters(self, *_):
         rows = self.compare_result.rows if self.compare_result is not None else []
@@ -253,7 +280,7 @@ class NpmFeederComparePage(WorkerPage):
 
         output_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Save NPM Feeder Compare Result",
+            "Save Feeder Compare Result",
             suggest_export_name(self.old_picker.path(), self.new_picker.path()),
             "Excel Workbook (*.xlsx)",
         )
@@ -261,7 +288,7 @@ class NpmFeederComparePage(WorkerPage):
             return
 
         try:
-            saved_path = export_npm_feeder_compare_result(self.compare_result, output_path)
+            saved_path = export_feeder_compare_result(self.compare_result, output_path)
         except Exception as exc:
             QMessageBox.warning(self, "Export gagal", str(exc))
             return
