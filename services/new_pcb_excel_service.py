@@ -490,7 +490,6 @@ def _bom_sort_key(insert_side):
 
 def _apply_workbook_options(workbook):
     workbook.calculation.fullCalcOnLoad = True
-    workbook.calculation.forceFullCalc = True
     workbook.calculation.calcMode = "auto"
 
 
