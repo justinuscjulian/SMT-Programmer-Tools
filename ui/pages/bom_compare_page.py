@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QFileDialog,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMessageBox,
     QProgressBar,
@@ -55,11 +56,15 @@ class BomComparePage(WorkerPage):
         self.export_btn = QPushButton("Export Results")
         self.export_btn.setEnabled(False)
         self.export_btn.clicked.connect(self.export_results)
+        self.auto_detect_btn = QPushButton("Auto Detect Files")
+        self.auto_detect_btn.setObjectName("SecondaryButton")
+        self.auto_detect_btn.clicked.connect(self.auto_detect_files)
         self.clear_btn = QPushButton("Clear All")
         self.clear_btn.setObjectName("DangerButton")
         self.clear_btn.clicked.connect(self.clear_all)
         action_bar.addWidget(self.compare_btn)
         action_bar.addWidget(self.export_btn)
+        action_bar.addWidget(self.auto_detect_btn)
         action_bar.addStretch(1)
         action_bar.addWidget(self.clear_btn)
         root.addLayout(action_bar)
@@ -111,6 +116,7 @@ class BomComparePage(WorkerPage):
             self.clear_btn,
             self.ref_browse_btn,
             self.raw_browse_btn,
+            self.auto_detect_btn,
             self.txt_bom_mode_btn,
             self.txt_txt_mode_btn,
         )
@@ -149,7 +155,7 @@ class BomComparePage(WorkerPage):
     def _build_raw_card(self):
         card = Card()
         header = QHBoxLayout()
-        self.raw_title = QLabel("BOM File (.tsv/.xlsx/.xls)")
+        self.raw_title = QLabel("BOM File (.tsv)")
         self.raw_title.setObjectName("SectionTitle")
         self.raw_count = QLabel("0 ROWS")
         self.raw_count.setObjectName("MutedLabel")
@@ -254,7 +260,7 @@ class BomComparePage(WorkerPage):
             self.raw_title.setText("BOM Excel Source (.txt)")
             self._apply_table_columns(self.raw_table, self.raw_model, self.source_txt_columns)
         else:
-            self.raw_title.setText("BOM File (.tsv/.xlsx/.xls)")
+            self.raw_title.setText("BOM File (.tsv)")
             self._apply_table_columns(self.raw_table, self.raw_model, self.raw_bom_columns)
         self._apply_table_columns(self.result_table, self.result_model, self._result_columns())
 
@@ -316,7 +322,7 @@ class BomComparePage(WorkerPage):
             )
             return
 
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select Raw BOM", "", "BOM (*.tsv *.xlsx *.xls);;All Files (*)")
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select Raw BOM", "", "BOM (*.tsv);;All Files (*)")
         if not file_path:
             return
         self.run_worker(
@@ -455,3 +461,45 @@ class BomComparePage(WorkerPage):
         self._reset_results()
         self._sync_mode_ui()
         self.status_label.setText("")
+
+    def auto_detect_files(self):
+        target_dir = r"C:\PROGRAMMER"
+        if not os.path.isdir(target_dir):
+            QMessageBox.warning(self, "Warning", f"Folder {target_dir} tidak ditemukan.")
+            return
+
+        txt_file = os.path.join(target_dir, "____BOM-PG_____.txt")
+        if not os.path.isfile(txt_file):
+            QMessageBox.warning(self, "Warning", f"File reference {txt_file} tidak ditemukan.")
+            return
+
+        tsv_files = [f for f in os.listdir(target_dir) if f.lower().endswith(".tsv")]
+        
+        if not tsv_files:
+            QMessageBox.warning(self, "Warning", f"Tidak ada file BOM (.tsv) di {target_dir}.")
+            return
+
+        selected_tsv = None
+        if len(tsv_files) == 1:
+            selected_tsv = os.path.join(target_dir, tsv_files[0])
+        else:
+            item, ok = QInputDialog.getItem(self, "Select BOM File", "Terdapat lebih dari 1 file BOM (.tsv).\nPilih file yang ingin di-import:", tsv_files, 0, False)
+            if ok and item:
+                selected_tsv = os.path.join(target_dir, item)
+            else:
+                return
+        
+        self.txt_bom_mode_btn.setChecked(True)
+        self.on_compare_mode_change(COMPARE_MODE_TXT_TO_BOM)
+
+        def import_both():
+            ref_df = bom_service.load_reference_txt(txt_file, check_duplicate_circuits=True)
+            raw_res = bom_service.load_raw_bom(selected_tsv, check_duplicate_circuits=True)
+            return ref_df, raw_res
+
+        def on_imported(result):
+            ref_df, raw_res = result
+            self._on_reference_loaded(txt_file, ref_df)
+            self._on_raw_loaded(selected_tsv, raw_res)
+
+        self.run_worker(import_both, on_imported, "Auto-detecting and loading files...")

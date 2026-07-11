@@ -126,7 +126,7 @@ class AllInOneComparatorPage(WorkerPage):
         self._add_picker(card, "npm_crb", "NPM (.crb)")
         self._add_picker(card, "cm602_machine", "CM602 (Machine)")
         self._add_picker(card, "bm_pos", "BM (.pos)")
-        self._add_picker(card, "bom_ori", "BOM (.tsv/.csv)")
+        self._add_picker(card, "bom_ori", "BOM (.tsv)")
         return card
 
     def _build_target_card(self):
@@ -140,6 +140,7 @@ class AllInOneComparatorPage(WorkerPage):
         self._add_picker(card, "bom_txt", "BOM (.txt)")
         return card
 
+
     def _add_picker(self, card, key, label):
         picker = FilePicker(label)
         picker.browse_requested.connect(lambda k=key: self.browse_file(k))
@@ -148,7 +149,11 @@ class AllInOneComparatorPage(WorkerPage):
 
     def browse_file(self, key):
         title = f"Select {self.pickers[key].label.text()}"
-        file_path, _ = QFileDialog.getOpenFileName(self, title, "", "All Files (*)")
+        if key == "bom_ori":
+            filter_str = "BOM (*.tsv);;All Files (*)"
+        else:
+            filter_str = "All Files (*)"
+        file_path, _ = QFileDialog.getOpenFileName(self, title, "", filter_str)
         if file_path:
             self.pickers[key].set_path(file_path)
 
