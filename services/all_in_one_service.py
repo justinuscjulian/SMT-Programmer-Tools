@@ -301,13 +301,16 @@ def get_rows(system_name, txt_data, machine_data):
             source = machine_data[ref]
             source_str = f"{source['pn']} | {source['x']:.3f}/{source['y']:.3f} | {source['angle']:.3f}"
             target_str = f"{target['pn']} | {target['x']:.3f}/{target['y']:.3f} | {target['angle']:.3f}"
-            is_match = (
-                abs(target["x"] - source["x"]) <= 0.05
-                and abs(target["y"] - source["y"]) <= 0.05
-                and target["angle"] == source["angle"]
-                and target["pn"].upper() == source["pn"].upper()
-            )
-            status = "MATCH" if is_match else "BEDA DATA"
+            diffs = []
+            if target["pn"].upper() != source["pn"].upper():
+                diffs.append("P/N")
+            if abs(target["x"] - source["x"]) > 0.05 or abs(target["y"] - source["y"]) > 0.05:
+                diffs.append("KOORDINAT")
+            if target["angle"] != source["angle"]:
+                diffs.append("ANGLE")
+
+            is_match = len(diffs) == 0
+            status = "MATCH" if is_match else "BEDA " + ", ".join(diffs)
             rows.append(_record(ref, system_name, status, source_str, target_str, "match" if is_match else "error"))
         elif in_txt:
             target = txt_data[ref]
@@ -329,6 +332,7 @@ def get_machine_service_rows(system_name, machine_path, program_path, machine_ty
     program_dict = {row["circuit"]: row for _, row in program_df.iterrows()}
     all_refs = sorted(set(machine_dict.keys()) | set(program_dict.keys()), key=natural_sort_key)
     diff_type_by_ref = _machine_diff_type_by_ref(diff_results)
+    diff_reasons_by_ref = _machine_diff_reasons_by_ref(diff_results)
 
     rows = []
     for ref in all_refs:
@@ -339,7 +343,11 @@ def get_machine_service_rows(system_name, machine_path, program_path, machine_ty
         program_row = program_dict.get(ref)
         if machine_row is not None and program_row is not None:
             diff_type = diff_type_by_ref.get(ref)
-            status = "MATCH" if diff_type is None else "BEDA DATA"
+            if diff_type is None:
+                status = "MATCH"
+            else:
+                reasons = diff_reasons_by_ref.get(ref, [])
+                status = "BEDA " + ", ".join(reasons) if reasons else "BEDA DATA"
             rows.append(
                 _record(
                     ref,
@@ -390,6 +398,28 @@ def _machine_diff_type_by_ref(diff_results):
             continue
         if diff_type == "CNG" or current is None:
             output[ref] = diff_type
+    return output
+
+
+def _machine_diff_reasons_by_ref(diff_results):
+    output = {}
+    for diff in diff_results:
+        ref = diff[0]
+        field = diff[1]
+        diff_type = diff[4]
+        if diff_type == "CNG":
+            if ref not in output:
+                output[ref] = []
+            
+            if field in ["X Coordinate", "Y Coordinate"]:
+                if "KOORDINAT" not in output[ref]:
+                    output[ref].append("KOORDINAT")
+            elif field == "Angle":
+                if "ANGLE" not in output[ref]:
+                    output[ref].append("ANGLE")
+            elif field == "Parts":
+                if "P/N" not in output[ref]:
+                    output[ref].append("P/N")
     return output
 
 
