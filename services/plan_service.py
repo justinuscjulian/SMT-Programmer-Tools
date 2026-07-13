@@ -175,7 +175,11 @@ class HistoryProgramIndex:
 
         part_token = part_digits.upper()
         pcb_token = pcb_text.upper()
-        line_marker = f"(INI{line_id})".upper() if line_id else ""
+        
+        if line_id == "RCLINE":
+            line_marker = "(RC-LINE)"
+        else:
+            line_marker = f"(INI{line_id})".upper() if line_id else ""
 
         best_match = ""
         old_match = ""
@@ -590,16 +594,19 @@ def _build_lookup_by_block(ws, layout, key_col, value_col, extra_cols=()):
 
 def _line_key(value):
     text = _cell_text(value).upper()
-    match = re.match(r"^(\d+\s*LINE|LGERC)", text)
+    match = re.match(r"^(\d+\s*LINE|LGERC|RCLINE\s*\d+)", text)
     if not match:
         return ""
     return re.sub(r"\s+", "", match.group(1))
 
 
 def _history_line_id(value):
-    text = _cell_text(value)
+    text = _cell_text(value).upper()
     if not text:
         return ""
+        
+    if text.startswith("RCLINE"):
+        return "RCLINE"
 
     line_match = re.search(r"^(.*?)\s*LINE\b", text, flags=re.IGNORECASE)
     if line_match:
