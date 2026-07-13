@@ -1,3 +1,4 @@
+import os
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -158,15 +159,34 @@ class AllInOneComparatorPage(WorkerPage):
             self.pickers[key].set_path(file_path)
 
     def bulk_import(self):
-        files, _ = QFileDialog.getOpenFileNames(self, "Pilih Semua File", "", "All Files (*)")
-        if not files:
+        target_dir = r"C:\PROGRAMMER"
+        if not os.path.isdir(target_dir):
+            QMessageBox.warning(self, "Warning", f"Folder {target_dir} tidak ditemukan.")
             return
+
+        files = []
+        for f in os.listdir(target_dir):
+            full_path = os.path.join(target_dir, f)
+            if os.path.isfile(full_path):
+                files.append(full_path)
+
+        if not files:
+            QMessageBox.warning(self, "Warning", f"Tidak ada file di folder {target_dir}.")
+            return
+            
         paths = all_in_one_service.classify_bulk_files(files)
+        
+        detected_count = 0
         for key, path in paths.items():
             if path and key in self.pickers:
                 self.pickers[key].set_path(path)
-        detected = sum(1 for key in self.pickers if paths.get(key))
-        self.status_label.setText(f"Auto-import selesai ({detected}/{len(self.pickers)} slot)")
+                detected_count += 1
+                
+        if detected_count == 0:
+            QMessageBox.warning(self, "Warning", f"Tidak ada file yang sesuai kriteria import ditemukan di {target_dir}.")
+            return
+            
+        self.status_label.setText(f"Auto-import selesai ({detected_count}/{len(self.pickers)} slot)")
 
     def process_compare(self):
         paths = {key: picker.path() for key, picker in self.pickers.items()}
