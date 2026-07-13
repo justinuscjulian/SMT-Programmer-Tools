@@ -69,69 +69,6 @@ HISTORY_OTHER_LINE_TEXT = "Program ada di LINE lain"
 HISTORY_NOT_FOUND_TEXT = "History program tidak ditemukan"
 
 
-@dataclass
-class PlanLayout:
-    col_line: int = 1
-    col_wo_supply: int = 3
-    col_smt_pn: int = 5
-    col_dms_pn: int = 7
-    col_pcb: int = 9
-    col_s2: int = 16
-    col_dms_fk: int = 21
-    col_target: int = 22
-    col_device: int = 23
-    col_extra_cut: int = 24
-    header_row: int = 3
-
-    @classmethod
-    def analyze(cls, ws, header_row=3):
-        layout = cls(header_row=header_row)
-        headers = {}
-        for col in range(1, 100):
-            val = _cell_text(ws.Cells(header_row, col).Value).upper()
-            if val:
-                headers[val] = col
-        
-        def resolve(aliases, default):
-            for alias in aliases:
-                for h, c in headers.items():
-                    if alias in h:
-                        return c
-            return default
-
-        layout.col_line = resolve(["LINE"], 1)
-        layout.col_wo_supply = resolve(["WO SUPPLY", "WO", "WORK ORDER"], 3)
-        layout.col_smt_pn = resolve(["SMT P/N", "SMT PN", "SMT PART"], 5)
-        layout.col_dms_pn = resolve(["DMS P/N", "DMS PN", "DMS PART"], 7)
-        layout.col_pcb = resolve(["PCB"], 9)
-        layout.col_s2 = resolve(["S-2", "S2", "REMARK"], 16)
-        layout.col_dms_fk = resolve(["DMS F/K", "DMS FK"], 21)
-        layout.col_device = resolve(["DEVICE"], 23)
-        layout.col_target = layout.col_device if layout.col_device > 0 else 22
-        
-        # We assume the column to cut is the one right after DEVICE
-        layout.col_extra_cut = layout.col_device + 1 if layout.col_device > 0 else 24
-        return layout
-
-    def insert_target_column(self, ws):
-        # Emulate the exact original behavior but using mapped columns
-        ws.Columns(self.col_extra_cut).Insert(Shift=-4161, CopyOrigin=0)
-        ws.Columns(self.col_extra_cut).Cut()
-        ws.Columns(self.col_target).Insert(Shift=-4161)
-        
-        insert_at = self.col_target
-        # Adjust indices for columns that shifted
-        if self.col_line >= insert_at: self.col_line += 1
-        if self.col_wo_supply >= insert_at: self.col_wo_supply += 1
-        if self.col_smt_pn >= insert_at: self.col_smt_pn += 1
-        if self.col_dms_pn >= insert_at: self.col_dms_pn += 1
-        if self.col_pcb >= insert_at: self.col_pcb += 1
-        if self.col_s2 >= insert_at: self.col_s2 += 1
-        if self.col_dms_fk >= insert_at: self.col_dms_fk += 1
-        if self.col_device >= insert_at: self.col_device += 1
-        if self.col_extra_cut >= insert_at: self.col_extra_cut += 1
-
-
 def suggest_output_name(plan_type, previous_plan_path="", new_plan_path=""):
     suffix_by_type = {
         PLAN_TYPE_FIRST: "1ST",
@@ -273,15 +210,12 @@ def generate_plan(config: PlanConfig):
         output_ws = output_wb.ActiveSheet
         history_index = HistoryProgramIndex(config.history_folder_path)
 
-        prev_layout = PlanLayout.analyze(previous_ws)
-        out_layout = PlanLayout.analyze(output_ws)
-
         if config.plan_type == PLAN_TYPE_FIRST:
-            _apply_first_plan_adjustments(output_ws, out_layout)
-            process_result = _process_first_plan(output_ws, previous_ws, history_index, out_layout, prev_layout)
+            _apply_first_plan_adjustments(output_ws)
+            process_result = _process_first_plan(output_ws, previous_ws, history_index)
         else:
-            _apply_next_plan_adjustments(output_ws, out_layout)
-            process_result = _process_next_plan(output_ws, previous_ws, history_index, out_layout, prev_layout)
+            _apply_next_plan_adjustments(output_ws)
+            process_result = _process_next_plan(output_ws, previous_ws, history_index)
 
         output_wb.Save()
         sheet_name = output_ws.Name
@@ -306,34 +240,28 @@ def generate_plan(config: PlanConfig):
     )
 
 
-def _process_first_plan(output_ws, previous_ws, history_index, out_layout, prev_layout):
-    output_blocks = _find_plan_blocks(output_ws, out_layout)
-    previous_lookup = _build_lookup_by_block(
-        previous_ws, 
-        prev_layout, 
-        key_col=prev_layout.col_wo_supply, 
-        value_col=prev_layout.col_target, 
-        extra_cols=(prev_layout.col_dms_pn, prev_layout.col_s2)
-    )
+def _process_first_plan(output_ws, previous_ws, history_index):
+    output_blocks = _find_plan_blocks(output_ws)
+    previous_lookup = _build_lookup_by_block(previous_ws, key_col=3, value_col=22, extra_cols=(7, 16))
     result = PlanProcessResult()
 
     for block in output_blocks:
         lookup = previous_lookup.get(block.key, {})
         for row in range(block.start_row, block.end_row + 1):
-            key = _cell_text(output_ws.Cells(row, out_layout.col_wo_supply).Value)
+            key = _cell_text(output_ws.Cells(row, 3).Value)
             if not key:
                 continue
 
             matched = lookup.get(key.upper())
-            target_cell = output_ws.Cells(row, out_layout.col_target)
+            target_cell = output_ws.Cells(row, 22)
             if matched is None:
                 result.not_found_count += 1
-                _apply_history_fallback(output_ws, row, target_cell, history_index, result, out_layout)
+                _apply_history_fallback(output_ws, row, target_cell, history_index, result)
                 continue
 
             target_cell.Value = matched["value"]
             
-            prev_col_g = matched["extra_cells"][prev_layout.col_dms_pn]
+            prev_col_g = matched["extra_cells"][7]
             try:
                 is_transparent = (prev_col_g.Interior.Pattern == XL_NONE)
             except Exception:
@@ -341,67 +269,61 @@ def _process_first_plan(output_ws, previous_ws, history_index, out_layout, prev_
 
             if is_transparent:
                 _copy_fill(matched["value_cell"], target_cell)
-                _copy_fill(prev_col_g, output_ws.Cells(row, out_layout.col_dms_pn))
+                _copy_fill(prev_col_g, output_ws.Cells(row, 7))
                 
-                prev_col_p = matched["extra_cells"][prev_layout.col_s2]
-                target_col_p = output_ws.Cells(row, out_layout.col_s2)
+                prev_col_p = matched["extra_cells"][16]
+                target_col_p = output_ws.Cells(row, 16)
                 target_col_p.Value = prev_col_p.Value
                 _copy_fill(prev_col_p, target_col_p)
             else:
                 _set_grey_fill(target_cell)
-                _set_grey_fill(output_ws.Cells(row, out_layout.col_dms_pn))
+                _set_grey_fill(output_ws.Cells(row, 7))
                 
             result.matched_count += 1
 
-    _clear_column_borders(output_ws, out_layout.col_target)
+    _clear_column_borders(output_ws, 22)
     return result
 
 
-def _process_next_plan(output_ws, previous_ws, history_index, out_layout, prev_layout):
-    output_blocks = _find_plan_blocks(output_ws, out_layout)
-    previous_lookup = _build_lookup_by_block(
-        previous_ws, 
-        prev_layout, 
-        key_col=prev_layout.col_wo_supply, 
-        value_col=prev_layout.col_target, 
-        extra_cols=(prev_layout.col_dms_pn, prev_layout.col_s2)
-    )
+def _process_next_plan(output_ws, previous_ws, history_index):
+    output_blocks = _find_plan_blocks(output_ws)
+    previous_lookup = _build_lookup_by_block(previous_ws, key_col=3, value_col=22, extra_cols=(7, 16))
     result = PlanProcessResult()
 
     for block in output_blocks:
         lookup = previous_lookup.get(block.key, {})
         for row in range(block.start_row, block.end_row + 1):
-            key = _cell_text(output_ws.Cells(row, out_layout.col_wo_supply).Value)
+            key = _cell_text(output_ws.Cells(row, 3).Value)
             if not key:
                 continue
 
             matched = lookup.get(key.upper())
-            target_cell = output_ws.Cells(row, out_layout.col_target)
+            target_cell = output_ws.Cells(row, 22)
             if matched is None:
                 result.not_found_count += 1
-                _apply_history_fallback(output_ws, row, target_cell, history_index, result, out_layout)
+                _apply_history_fallback(output_ws, row, target_cell, history_index, result)
                 continue
 
             target_cell.Value = matched["value"]
             _copy_fill(matched["value_cell"], target_cell)
-            _copy_fill(matched["extra_cells"][prev_layout.col_dms_pn], output_ws.Cells(row, out_layout.col_dms_pn))
+            _copy_fill(matched["extra_cells"][7], output_ws.Cells(row, 7))
 
-            s2_source = matched["extra_cells"][prev_layout.col_s2]
-            s2_target = output_ws.Cells(row, out_layout.col_s2)
+            s2_source = matched["extra_cells"][16]
+            s2_target = output_ws.Cells(row, 16)
             s2_target.Value = s2_source.Value
             _copy_fill(s2_source, s2_target)
             result.matched_count += 1
 
-    _set_column_font_color(output_ws, out_layout.col_s2, BLACK_FONT)
-    _clear_column_borders(output_ws, out_layout.col_target)
+    _set_column_font_color(output_ws, 16, BLACK_FONT)
+    _clear_column_borders(output_ws, 22)
     return result
 
 
-def _apply_history_fallback(output_ws, row, target_cell, history_index, result, layout):
+def _apply_history_fallback(output_ws, row, target_cell, history_index, result):
     history_match = history_index.find(
-        output_ws.Cells(row, layout.col_dms_pn).Value,
-        output_ws.Cells(row, layout.col_pcb).Value,
-        _history_line_id(output_ws.Cells(row, layout.col_line).Value),
+        output_ws.Cells(row, 7).Value,
+        output_ws.Cells(row, 9).Value,
+        _history_line_id(output_ws.Cells(row, 1).Value),
     )
 
     target_cell.Value = history_match.value
@@ -415,24 +337,26 @@ def _apply_history_fallback(output_ws, row, target_cell, history_index, result, 
         result.history_not_found_count += 1
 
 
-def _apply_first_plan_adjustments(ws, layout):
+def _apply_first_plan_adjustments(ws):
     _clean_plan_sheet(ws)
-    layout.insert_target_column(ws)
-    _clear_target_column(ws, layout.col_target)
-    _apply_first_plan_column_layout(ws, layout)
-    # Convert V4 to proper column char if possible, or just ignore for now since it's just selection
-    _select_cell(ws, "A1")
+    _insert_first_plan_program_column(ws)
+    _clear_target_column(ws, 22)
+    _apply_first_plan_column_layout(ws)
+    _select_cell(ws, "V4")
 
 
-def _apply_next_plan_adjustments(ws, layout):
+def _apply_next_plan_adjustments(ws):
     _clean_plan_sheet(ws)
-    layout.insert_target_column(ws)
-    _clear_target_column(ws, layout.col_target)
-    _apply_first_plan_column_layout(ws, layout)
-    _select_cell(ws, "A1")
+    _insert_first_plan_program_column(ws)
+    _clear_target_column(ws, 22)
+    _apply_first_plan_column_layout(ws)
+    _select_cell(ws, "V4")
 
 
-# This is now handled by PlanLayout.insert_target_column
+def _insert_first_plan_program_column(ws):
+    ws.Columns(24).Insert(Shift=-4161, CopyOrigin=0)
+    ws.Columns(24).Cut()
+    ws.Columns(22).Insert(Shift=-4161)
 
 
 def _clean_plan_sheet(ws):
@@ -455,23 +379,18 @@ def _clean_plan_sheet(ws):
     font.ThemeFont = 2
 
 
-def _apply_first_plan_column_layout(ws, layout):
+def _apply_first_plan_column_layout(ws):
     try:
-        ws.Columns(layout.col_smt_pn).EntireColumn.Hidden = True
-        ws.Columns(layout.col_dms_fk).EntireColumn.Hidden = True
-        ws.Columns(layout.col_device).EntireColumn.Hidden = True
-        ws.Columns(layout.col_extra_cut).EntireColumn.Hidden = True
-        
-        # Col 20 was hardcoded, let's just make it col_target - 2 if we don't know it,
-        # but realistically the user just wants the widths of the target and its neighbors fixed.
-        # If we can't find col 20 dynamically, we just hide it by index. But 20 is typically before DMS F/K.
-        ws.Columns(layout.col_target - 2).ColumnWidth = 1.5 if layout.col_target >= 3 else 1.5
-        
-        ws.Columns(layout.col_target).ColumnWidth = 105
-        ws.Columns(layout.col_s2).ColumnWidth = 17
-        ws.Columns(layout.col_dms_pn).ColumnWidth = 11
-        ws.Columns(layout.col_target).EntireColumn.Hidden = False
-        _clear_column_fill_and_borders(ws, layout.col_target)
+        ws.Columns(5).EntireColumn.Hidden = True
+        ws.Columns(21).EntireColumn.Hidden = True
+        ws.Columns(23).EntireColumn.Hidden = True
+        ws.Columns(24).EntireColumn.Hidden = True
+        ws.Columns(20).ColumnWidth = 1.5
+        ws.Columns(22).ColumnWidth = 105
+        ws.Columns(16).ColumnWidth = 17
+        ws.Columns(7).ColumnWidth = 11
+        ws.Columns(22).EntireColumn.Hidden = False
+        _clear_column_fill_and_borders(ws, 22)
     except Exception:
         pass
 
@@ -539,7 +458,7 @@ def _select_cell(ws, address):
         pass
 
 
-def _find_plan_blocks(ws, layout):
+def _find_plan_blocks(ws):
     used_range = ws.UsedRange
     first_row = used_range.Row
     last_row = used_range.Row + used_range.Rows.Count - 1
@@ -547,17 +466,17 @@ def _find_plan_blocks(ws, layout):
     row = first_row
 
     while row <= last_row:
-        if _cell_text(ws.Cells(row, layout.col_line).Value).upper() == "LINE":
+        if _cell_text(ws.Cells(row, 1).Value).upper() == "LINE":
             start_row = row + 1
-            if not _cell_text(ws.Cells(start_row, layout.col_line).Value):
+            if not _cell_text(ws.Cells(start_row, 1).Value):
                 row += 1
                 continue
 
             end_row = start_row
-            while end_row + 1 <= last_row and _cell_text(ws.Cells(end_row + 1, layout.col_line).Value):
+            while end_row + 1 <= last_row and _cell_text(ws.Cells(end_row + 1, 1).Value):
                 end_row += 1
 
-            block_key = _line_key(ws.Cells(start_row, layout.col_line).Value)
+            block_key = _line_key(ws.Cells(start_row, 1).Value)
             if block_key:
                 blocks.append(PlanBlock(block_key, start_row, end_row))
             row = end_row + 1
@@ -569,9 +488,9 @@ def _find_plan_blocks(ws, layout):
     return blocks
 
 
-def _build_lookup_by_block(ws, layout, key_col, value_col, extra_cols=()):
+def _build_lookup_by_block(ws, key_col, value_col, extra_cols=()):
     lookup_by_block = {}
-    for block in _find_plan_blocks(ws, layout):
+    for block in _find_plan_blocks(ws):
         lookup = {}
         for row in range(block.start_row, block.end_row + 1):
             key = _cell_text(ws.Cells(row, key_col).Value)
