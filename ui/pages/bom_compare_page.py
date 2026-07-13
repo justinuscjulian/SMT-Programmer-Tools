@@ -1,7 +1,7 @@
 import os
 from datetime import datetime
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSettings
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFileDialog,
@@ -59,12 +59,17 @@ class BomComparePage(WorkerPage):
         self.auto_detect_btn = QPushButton("Auto Detect Files")
         self.auto_detect_btn.setObjectName("SecondaryButton")
         self.auto_detect_btn.clicked.connect(self.auto_detect_files)
+        
+        self.settings_btn = QPushButton("⚙️")
+        self.settings_btn.setToolTip("Set Auto Detect Folder")
+        self.settings_btn.clicked.connect(self.set_auto_detect_folder)
         self.clear_btn = QPushButton("Clear All")
         self.clear_btn.setObjectName("DangerButton")
         self.clear_btn.clicked.connect(self.clear_all)
         action_bar.addWidget(self.compare_btn)
         action_bar.addWidget(self.export_btn)
         action_bar.addWidget(self.auto_detect_btn)
+        action_bar.addWidget(self.settings_btn)
         action_bar.addStretch(1)
         action_bar.addWidget(self.clear_btn)
         root.addLayout(action_bar)
@@ -462,8 +467,17 @@ class BomComparePage(WorkerPage):
         self._sync_mode_ui()
         self.status_label.setText("")
 
+    def set_auto_detect_folder(self):
+        settings = QSettings("SMTTools", "BomComparatorQt")
+        current_dir = settings.value("auto_import_dir", r"C:\PROGRAMMER")
+        new_dir = QFileDialog.getExistingDirectory(self, "Pilih Folder Auto Detect", current_dir)
+        if new_dir:
+            settings.setValue("auto_import_dir", new_dir)
+            QMessageBox.information(self, "Success", f"Folder Auto Detect diubah ke:\n{new_dir}")
+
     def auto_detect_files(self):
-        target_dir = r"C:\PROGRAMMER"
+        settings = QSettings("SMTTools", "BomComparatorQt")
+        target_dir = settings.value("auto_import_dir", r"C:\PROGRAMMER")
         if not os.path.isdir(target_dir):
             QMessageBox.warning(self, "Warning", f"Folder {target_dir} tidak ditemukan.")
             return

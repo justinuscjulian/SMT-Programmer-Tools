@@ -1,5 +1,5 @@
 import os
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSettings
 from PySide6.QtWidgets import (
     QFileDialog,
     QComboBox,
@@ -55,6 +55,11 @@ class AllInOneComparatorPage(WorkerPage):
         self.auto_import_btn = QPushButton("Auto-Import Semua File")
         self.auto_import_btn.setObjectName("PrimaryButton")
         self.auto_import_btn.clicked.connect(self.bulk_import)
+        
+        self.settings_btn = QPushButton("⚙️")
+        self.settings_btn.setToolTip("Set Auto-Import Folder")
+        self.settings_btn.clicked.connect(self.set_auto_import_folder)
+        
         self.compare_btn = QPushButton("Start Compare")
         self.compare_btn.setObjectName("SuccessButton")
         self.compare_btn.clicked.connect(self.process_compare)
@@ -62,6 +67,7 @@ class AllInOneComparatorPage(WorkerPage):
         self.clear_btn.setObjectName("DangerButton")
         self.clear_btn.clicked.connect(self.clear_data)
         top_actions.addWidget(self.auto_import_btn)
+        top_actions.addWidget(self.settings_btn)
         top_actions.addWidget(self.compare_btn)
         top_actions.addStretch(1)
         top_actions.addWidget(self.clear_btn)
@@ -158,8 +164,17 @@ class AllInOneComparatorPage(WorkerPage):
         if file_path:
             self.pickers[key].set_path(file_path)
 
+    def set_auto_import_folder(self):
+        settings = QSettings("SMTTools", "BomComparatorQt")
+        current_dir = settings.value("auto_import_dir", r"C:\PROGRAMMER")
+        new_dir = QFileDialog.getExistingDirectory(self, "Pilih Folder Auto-Import", current_dir)
+        if new_dir:
+            settings.setValue("auto_import_dir", new_dir)
+            QMessageBox.information(self, "Success", f"Folder Auto-Import diubah ke:\n{new_dir}")
+
     def bulk_import(self):
-        target_dir = r"C:\PROGRAMMER"
+        settings = QSettings("SMTTools", "BomComparatorQt")
+        target_dir = settings.value("auto_import_dir", r"C:\PROGRAMMER")
         if not os.path.isdir(target_dir):
             QMessageBox.warning(self, "Warning", f"Folder {target_dir} tidak ditemukan.")
             return
