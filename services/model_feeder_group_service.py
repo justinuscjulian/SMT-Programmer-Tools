@@ -184,7 +184,7 @@ def _scan_models(source_folder, target_pcb_list, progress_callback=None):
     pcb_folders = _pcb_folders(folder)
     
     if target_pcb_list:
-        pcb_folders = [f for f in pcb_folders if f.name.upper() in target_pcb_list]
+        pcb_folders = [f for f in pcb_folders if any(target in f.name.upper() for target in target_pcb_list)]
 
     folder_files_map = {pcb_folder: _excel_files_in_folder(pcb_folder) for pcb_folder in pcb_folders}
     total_files = sum(len(files) for files in folder_files_map.values())
