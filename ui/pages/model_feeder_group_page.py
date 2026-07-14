@@ -12,7 +12,8 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSpinBox,
-    QTableView,
+    QRadioButton,
+    QTextEdit,
     QVBoxLayout,
 )
 
@@ -65,6 +66,23 @@ class ModelFeederGroupPage(WorkerPage):
         self.folder_picker = FilePicker("Folder Induk PCB:")
         self.folder_picker.browse_requested.connect(self.browse_source_folder)
         source_card.layout.addWidget(self.folder_picker)
+
+        # Mode Selection
+        mode_layout = QHBoxLayout()
+        self.mode_all = QRadioButton("Mode 1: Scan All in Folder")
+        self.mode_all.setChecked(True)
+        self.mode_list = QRadioButton("Mode 2: Filter by PCB List")
+        self.mode_all.toggled.connect(self._toggle_mode)
+        mode_layout.addWidget(self.mode_all)
+        mode_layout.addWidget(self.mode_list)
+        mode_layout.addStretch(1)
+        source_card.layout.addLayout(mode_layout)
+
+        self.list_input = QTextEdit()
+        self.list_input.setPlaceholderText("Paste list PCB Part Number di sini (pisahkan dengan enter atau koma)...\nContoh:\nEAX67123456\nEAX67123457")
+        self.list_input.setMaximumHeight(80)
+        self.list_input.setVisible(False)
+        source_card.layout.addWidget(self.list_input)
 
         option_row = QHBoxLayout()
         similarity_label = QLabel("Min Similarity (%):")
@@ -146,10 +164,7 @@ class ModelFeederGroupPage(WorkerPage):
                 ColumnSpec("member_count", "PCB Count", Qt.AlignCenter, 90),
                 ColumnSpec("avg_similarity_percent", "Avg Similarity %", Qt.AlignCenter, 125),
                 ColumnSpec("min_similarity_percent", "Min Similarity %", Qt.AlignCenter, 125),
-                ColumnSpec("common_component_count", "Common Parts", Qt.AlignCenter, 110),
-                ColumnSpec("union_component_count", "Union Parts", Qt.AlignCenter, 100),
-                ColumnSpec("members", "PCB Members", Qt.AlignLeft, 360),
-                ColumnSpec("common_components", "Recommended Fixed Feeder Parts", Qt.AlignLeft, 420),
+                ColumnSpec("members", "PCB Members", Qt.AlignLeft, 400),
             ],
             status_key="status",
             theme=self.theme_manager.theme,
@@ -171,7 +186,13 @@ class ModelFeederGroupPage(WorkerPage):
             self.folder_picker.button,
             self.similarity_spin,
             self.shared_spin,
+            self.mode_all,
+            self.mode_list,
+            self.list_input,
         )
+
+    def _toggle_mode(self):
+        self.list_input.setVisible(self.mode_list.isChecked())
 
     def browse_source_folder(self):
         folder_path = QFileDialog.getExistingDirectory(self, "Pilih Folder Induk PCB")
@@ -182,10 +203,19 @@ class ModelFeederGroupPage(WorkerPage):
         if not self._validate_before_analysis():
             return
 
+        target_list = []
+        if self.mode_list.isChecked():
+            raw_text = self.list_input.toPlainText()
+            target_list = [t.strip().upper() for t in raw_text.replace(",", "\n").split("\n") if t.strip()]
+            if not target_list:
+                QMessageBox.warning(self, "Input belum lengkap", "List PCB Part Number tidak boleh kosong di Mode 2.")
+                return
+
         config = ModelFeederGroupConfig(
             source_folder=self.folder_picker.path(),
             min_similarity_percent=self.similarity_spin.value(),
             min_shared_components=self.shared_spin.value(),
+            target_pcb_list=target_list,
         )
         self.analysis_result = None
         self.group_model.set_records([])

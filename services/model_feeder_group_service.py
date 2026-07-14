@@ -29,10 +29,7 @@ GROUP_COLUMNS = [
     ("member_count", "PCB Count"),
     ("avg_similarity_percent", "Avg Similarity %"),
     ("min_similarity_percent", "Min Similarity %"),
-    ("common_component_count", "Common Parts"),
-    ("union_component_count", "Union Parts"),
     ("members", "PCB Members"),
-    ("common_components", "Recommended Fixed Feeder Parts"),
 ]
 
 PAIR_COLUMNS = [
@@ -72,6 +69,7 @@ class ModelFeederGroupConfig:
     source_folder: str
     min_similarity_percent: int = 70
     min_shared_components: int = 20
+    target_pcb_list: list = None
 
 
 @dataclass
@@ -91,7 +89,6 @@ class ModelUsage:
 @dataclass
 class ModelFeederGroupResult:
     group_rows: list[dict]
-    group_component_rows: list[dict]
     pair_rows: list[dict]
     model_rows: list[dict]
     total_files: int
@@ -108,11 +105,10 @@ def analyze_model_feeder_groups(config: ModelFeederGroupConfig, progress_callbac
     _validate_config(config)
     _emit_progress(progress_callback, 0, "Scanning PCB folders...")
 
-    models, total_files, read_files, skipped_files = _scan_models(config.source_folder, progress_callback)
+    models, total_files, read_files, skipped_files = _scan_models(config.source_folder, config.target_pcb_list, progress_callback)
     if not models:
         return ModelFeederGroupResult(
             group_rows=[],
-            group_component_rows=[],
             pair_rows=[],
             model_rows=[],
             total_files=total_files,
@@ -130,7 +126,7 @@ def analyze_model_feeder_groups(config: ModelFeederGroupConfig, progress_callbac
 
     _emit_progress(progress_callback, 98, "Building recommended fixed-feeder groups...")
     groups = _build_groups(models, pair_rows, pair_lookup)
-    group_rows, group_component_rows = _build_group_outputs(groups, models, pair_lookup)
+    group_rows = _build_group_outputs(groups, models, pair_lookup)
     model_rows = _build_model_rows(models)
     group_count = sum(1 for row in group_rows if row["status"] == STATUS_GROUPED)
     single_count = sum(1 for row in group_rows if row["status"] == STATUS_SINGLE)
@@ -138,7 +134,6 @@ def analyze_model_feeder_groups(config: ModelFeederGroupConfig, progress_callbac
     _emit_progress(progress_callback, 100, "Analysis complete")
     return ModelFeederGroupResult(
         group_rows=group_rows,
-        group_component_rows=group_component_rows,
         pair_rows=pair_rows,
         model_rows=model_rows,
         total_files=total_files,
@@ -168,9 +163,6 @@ def export_model_feeder_group_result(result, output_path):
     group_sheet.title = "Recommended Groups"
     _write_records_sheet(group_sheet, result.group_rows, GROUP_COLUMNS)
 
-    component_sheet = workbook.create_sheet("Group Components")
-    _write_records_sheet(component_sheet, result.group_component_rows, GROUP_COMPONENT_COLUMNS)
-
     pair_sheet = workbook.create_sheet("Pair Similarity")
     _write_records_sheet(pair_sheet, result.pair_rows, PAIR_COLUMNS)
 
@@ -184,12 +176,16 @@ def export_model_feeder_group_result(result, output_path):
     return str(output)
 
 
-def _scan_models(source_folder, progress_callback=None):
+def _scan_models(source_folder, target_pcb_list, progress_callback=None):
     folder = Path(source_folder)
     models = OrderedDict()
     skipped_files = []
     read_files = 0
     pcb_folders = _pcb_folders(folder)
+    
+    if target_pcb_list:
+        pcb_folders = [f for f in pcb_folders if f.name.upper() in target_pcb_list]
+
     folder_files_map = {pcb_folder: _excel_files_in_folder(pcb_folder) for pcb_folder in pcb_folders}
     total_files = sum(len(files) for files in folder_files_map.values())
 
@@ -332,14 +328,10 @@ def _build_groups(models, pair_rows, pair_lookup):
 
 def _build_group_outputs(groups, models, pair_lookup):
     group_rows = []
-    group_component_rows = []
 
     for index, group_keys in enumerate(groups, start=1):
         group_id = f"FFG{index:02d}"
         group_models = [models[key] for key in group_keys]
-        component_sets = [set(model.components.keys()) for model in group_models]
-        common_keys = set.intersection(*component_sets) if component_sets else set()
-        union_keys = set.union(*component_sets) if component_sets else set()
         pair_values = [
             _pair_for(pair_lookup, first_key, second_key)
             for first_key, second_key in combinations(group_keys, 2)
@@ -350,7 +342,6 @@ def _build_group_outputs(groups, models, pair_lookup):
         member_names = "; ".join(model.display_name for model in group_models)
         group_status = STATUS_GROUPED if len(group_keys) > 1 else STATUS_SINGLE
 
-        component_catalog = _component_catalog(group_models)
         group_rows.append(
             {
                 "group_id": group_id,
@@ -358,46 +349,11 @@ def _build_group_outputs(groups, models, pair_lookup):
                 "member_count": len(group_keys),
                 "avg_similarity_percent": avg_similarity,
                 "min_similarity_percent": min_similarity,
-                "common_component_count": len(common_keys),
-                "union_component_count": len(union_keys),
                 "members": member_names,
-                "common_components": _format_components(common_keys, component_catalog, limit=80),
             }
         )
 
-        group_component_rows.extend(
-            _group_component_rows(group_id, group_keys, group_models, union_keys, component_catalog)
-        )
-
-    return group_rows, group_component_rows
-
-
-def _group_component_rows(group_id, group_keys, group_models, union_keys, component_catalog):
-    rows = []
-    member_count = len(group_models)
-    model_by_key = {model.key: model for model in group_models}
-
-    for component_key in sorted(union_keys, key=lambda key: component_catalog.get(key, key).upper()):
-        used_models = [
-            model_by_key[key]
-            for key in group_keys
-            if component_key in model_by_key[key].components
-        ]
-        used_count = len(used_models)
-        rows.append(
-            {
-                "group_id": group_id,
-                "component_part_number": component_catalog.get(component_key, component_key),
-                "status": "COMMON" if used_count == member_count else "PARTIAL",
-                "used_in_count": used_count,
-                "member_count": member_count,
-                "coverage_percent": round(used_count / max(1, member_count) * 100, 1),
-                "members": "; ".join(model.display_name for model in used_models),
-            }
-        )
-
-    rows.sort(key=lambda row: (0 if row["status"] == "COMMON" else 1, -row["coverage_percent"], row["component_part_number"].upper()))
-    return rows
+    return group_rows
 
 
 def _build_model_rows(models):
@@ -450,15 +406,6 @@ def _write_scan_log(worksheet, result):
 
 def _pair_for(pair_lookup, first_key, second_key):
     return pair_lookup.get(frozenset((first_key, second_key)))
-
-
-def _component_catalog(models):
-    catalog = OrderedDict()
-    for model in models:
-        for key, value in model.components.items():
-            if key not in catalog:
-                catalog[key] = value
-    return catalog
 
 
 def _unique_components(parts):
