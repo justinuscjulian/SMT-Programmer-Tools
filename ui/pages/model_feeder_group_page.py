@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSpinBox,
     QRadioButton,
+    QTableView,
     QTextEdit,
     QVBoxLayout,
 )
