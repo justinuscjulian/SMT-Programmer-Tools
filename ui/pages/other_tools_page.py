@@ -12,6 +12,7 @@ from ui.pages.feeder_balancer_page import FeederBalancerPage
 from ui.pages.feeder_mapping_page import FeederMappingPage
 from ui.pages.insert_point_page import InsertPointPage
 from ui.pages.model_feeder_group_page import ModelFeederGroupPage
+from ui.pages.table7_feeder_page import Table7FeederPage
 from ui.pages.new_pcb_excel_page import NewPcbExcelPage
 from ui.pages.feeder_compare_page import FeederComparePage
 from ui.pages.used_part_component_page import UsedPartComponentPage
@@ -49,6 +50,7 @@ class OtherToolsPage(QWidget):
         self.stack.addWidget(self._build_component_usage_plan_page())
         self.stack.addWidget(self._build_common_feeder_reuse_page())
         self.stack.addWidget(self._build_model_feeder_group_page())
+        self.stack.addWidget(self._build_table7_feeder_page())
         self.stack.addWidget(self._build_crb_program_collector_page())
         self.stack.addWidget(self._build_feeder_balancer_page())
         root.addWidget(self.stack, 1)
@@ -173,9 +175,16 @@ class OtherToolsPage(QWidget):
             (
                 "model_feeder_group_button",
                 "PCB Fix Feeder Groups",
-                "Kelompokkan PCB yang component usage-nya mirip",
-                "model_group",
+                "Kelompokkan PCB berdasarkan model yang serupa",
+                "group",
                 self.open_model_feeder_group,
+            ),
+            (
+                "table7_feeder_button",
+                "Table 7 Fix Feeder Generator",
+                "Bikin Fix Feeder khusus komponen Table 7",
+                "group",
+                self.open_table7_feeder,
             ),
             (
                 "crb_program_collector_button",
@@ -457,6 +466,26 @@ class OtherToolsPage(QWidget):
         layout.addWidget(self.model_feeder_group_page, 1)
         return page
 
+    def _build_table7_feeder_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        top = QHBoxLayout()
+        self.back_table7_feeder_button = QPushButton("Back to Tools")
+        self.back_table7_feeder_button.clicked.connect(self.open_menu)
+        title = QLabel("Table 7 Fix Feeder Generator")
+        title.setObjectName("TitleLabel")
+        top.addWidget(self.back_table7_feeder_button)
+        top.addWidget(title)
+        top.addStretch(1)
+        layout.addLayout(top)
+
+        self.table7_feeder_page = Table7FeederPage(self.thread_pool, self.theme_manager)
+        layout.addWidget(self.table7_feeder_page, 1)
+        return page
+
     def _build_crb_program_collector_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -543,11 +572,14 @@ class OtherToolsPage(QWidget):
     def open_model_feeder_group(self):
         self.stack.setCurrentIndex(13)
 
-    def open_crb_program_collector(self):
+    def open_table7_feeder(self):
         self.stack.setCurrentIndex(14)
 
-    def open_feeder_balancer(self):
+    def open_crb_program_collector(self):
         self.stack.setCurrentIndex(15)
+
+    def open_feeder_balancer(self):
+        self.stack.setCurrentIndex(16)
 
     def open_worksheet_bom(self):
         self.stack.setCurrentIndex(2)
@@ -588,6 +620,8 @@ class OtherToolsPage(QWidget):
             self.back_common_feeder_reuse_button.setIcon(make_icon("arrow_left", theme["text"]))
         if hasattr(self, "back_model_feeder_group_button"):
             self.back_model_feeder_group_button.setIcon(make_icon("arrow_left", theme["text"]))
+        if hasattr(self, "back_table7_feeder_button"):
+            self.back_table7_feeder_button.setIcon(make_icon("arrow_left", theme["text"]))
         if hasattr(self, "back_crb_program_collector_button"):
             self.back_crb_program_collector_button.setIcon(make_icon("arrow_left", theme["text"]))
         if hasattr(self, "back_feeder_balancer_button"):
