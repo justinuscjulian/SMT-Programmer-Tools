@@ -57,7 +57,7 @@ def get_master_mapping(ref_file: str) -> dict:
     
     try:
         df = pd.read_excel(ref_file, sheet_name="Table 7 Slots Detail")
-        slot_cols = [col for col in df.columns if str(col).startswith("Slot ")]
+        slot_cols = [col for col in df.columns if str(col).startswith("[7]")]
         for _, row in df.iterrows():
             for i, col in enumerate(slot_cols):
                 comp = str(row[col]).strip().upper()
@@ -151,9 +151,9 @@ def analyze_table7_feeders(config: Table7FeederConfig, progress_callback=None) -
             if s and s != "BLOCKED":
                 size = table7_components.get(s, 1)
                 if size == 2:
-                    slot_assignments.append(f"Slot {idx}-{idx+1}: {s}")
+                    slot_assignments.append(f"[7]{idx}-{idx+1}: {s}")
                 else:
-                    slot_assignments.append(f"Slot {idx}: {s}")
+                    slot_assignments.append(f"[7]{idx}: {s}")
         
         pcb_rows.append({
             "pcb_part_number": model.pcb_part_number,
@@ -204,7 +204,7 @@ def export_table7_result(result: Table7FeederResult, output_path: str):
     _style_sheet(summary_sheet)
     
     slot_sheet = workbook.create_sheet("Table 7 Slots Detail")
-    slot_sheet.append(["PCB Part Number", "Status", "Total Parts T7"] + [f"Slot {i}" for i in range(1, 31)])
+    slot_sheet.append(["PCB Part Number", "Status", "Total Parts T7"] + [f"[7]{i}" for i in range(1, 31)])
     for row in result.pcb_rows:
         out_row = [row["pcb_part_number"], row["status"], row["table7_part_count"]]
         slots = row["_slots_array"]
