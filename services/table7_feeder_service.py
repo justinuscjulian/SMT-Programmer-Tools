@@ -114,6 +114,14 @@ def analyze_table7_feeders(config: Table7FeederConfig, progress_callback=None) -
         return Table7FeederResult([], total_files, read_files, skipped_files, 0)
 
     _emit_progress(progress_callback, 96, "Menganalisa komponen Table 7 per PCB...")
+    
+    global_frequencies = {}
+    for model in models.values():
+        if hasattr(model, 'component_frequencies') and model.component_frequencies:
+            for key, freq in model.component_frequencies.items():
+                part = model.components[key].upper()
+                global_frequencies[part] = global_frequencies.get(part, 0) + freq
+                
     pcb_rows = []
     
     for key, model in models.items():
@@ -123,8 +131,19 @@ def analyze_table7_feeders(config: Table7FeederConfig, progress_callback=None) -
                 # Always use the value (part number) to check against dict
                 used_table7_parts.append(comp_val.upper())
                 
+        local_frequencies = {}
+        if hasattr(model, 'component_frequencies') and model.component_frequencies:
+            for key, freq in model.component_frequencies.items():
+                part = model.components[key].upper()
+                local_frequencies[part] = local_frequencies.get(part, 0) + freq
+                
         used_table7_parts = list(dict.fromkeys(used_table7_parts))
-        used_table7_parts.sort()
+        used_table7_parts.sort(key=lambda p: (
+            -(1 if p in master_slots else 0),
+            -global_frequencies.get(p, 0),
+            -local_frequencies.get(p, 0),
+            p
+        ))
         
         slots = [None] * 30
         unassigned_parts = []

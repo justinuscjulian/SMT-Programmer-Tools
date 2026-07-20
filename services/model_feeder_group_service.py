@@ -80,6 +80,7 @@ class ModelUsage:
     source_folder: str
     source_files: list[str]
     components: OrderedDict
+    component_frequencies: dict = None
 
     @property
     def component_count(self):
@@ -197,6 +198,7 @@ def _scan_models(source_folder, target_pcb_list, progress_callback=None):
             continue
 
         merged_components = OrderedDict()
+        component_frequencies = {}
         source_files = []
         for file_path in excel_files:
             file_index += 1
@@ -223,6 +225,7 @@ def _scan_models(source_folder, target_pcb_list, progress_callback=None):
             for key, part in components.items():
                 if key not in merged_components:
                     merged_components[key] = part
+                component_frequencies[key] = component_frequencies.get(key, 0) + 1
 
         if not merged_components:
             skipped_files.append(f"{pcb_folder.name}: tidak ada component P/N valid dari semua Excel program")
@@ -237,6 +240,7 @@ def _scan_models(source_folder, target_pcb_list, progress_callback=None):
             source_folder=pcb_folder.name,
             source_files=source_files,
             components=merged_components,
+            component_frequencies=component_frequencies,
         )
 
     models = OrderedDict(sorted(models.items(), key=lambda item: item[1].display_name.upper()))
