@@ -64,11 +64,15 @@ class Table7FeederPage(WorkerPage):
         # File picker for Component Database
         self.db_picker = FilePicker("DB Table 7 (Excel):")
         self.db_picker.browse_requested.connect(self.browse_db_file)
-        # Try to default if exists in current dir
         default_db = Path("KOMPONEN TABLE 7.xlsx").resolve()
         if default_db.exists():
             self.db_picker.set_path(str(default_db))
         source_card.layout.addWidget(self.db_picker)
+
+        # File picker for Master Mapping (Optional)
+        self.master_picker = FilePicker("Master Mapping Fix Feeder (Opsional):")
+        self.master_picker.browse_requested.connect(self.browse_master_file)
+        source_card.layout.addWidget(self.master_picker)
 
         # File picker for Parent Folder
         self.folder_picker = FilePicker("Folder Induk PCB:")
@@ -178,6 +182,7 @@ class Table7FeederPage(WorkerPage):
             self.search_input,
             self.folder_picker.button,
             self.db_picker.button,
+            self.master_picker.button,
             self.mode_all,
             self.mode_list,
             self.list_input,
@@ -196,6 +201,11 @@ class Table7FeederPage(WorkerPage):
         if file_path:
             self.db_picker.set_path(file_path)
 
+    def browse_master_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Pilih File Master Mapping", "", "Excel Files (*.xlsx *.xls)")
+        if file_path:
+            self.master_picker.set_path(file_path)
+
     def analyze_groups(self):
         if not self._validate_before_analysis():
             return
@@ -212,6 +222,7 @@ class Table7FeederPage(WorkerPage):
             source_folder=self.folder_picker.path(),
             table7_ref_file=self.db_picker.path(),
             target_pcb_list=target_list,
+            master_mapping_file=self.master_picker.path(),
         )
         self.analysis_result = None
         self.group_model.set_records([])

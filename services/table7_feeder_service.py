@@ -14,6 +14,7 @@ class Table7FeederConfig:
     source_folder: str
     target_pcb_list: list = None
     table7_ref_file: str = ""
+    master_mapping_file: str = ""
 
 
 @dataclass
@@ -25,18 +26,47 @@ class Table7FeederResult:
     model_count: int
 
 
-def get_table7_components(ref_file: str) -> set:
+def get_table7_components(ref_file: str) -> dict:
     try:
         df = pd.read_excel(ref_file)
         if df.empty:
             raise ServiceError("File komponen Table 7 kosong.", title="Data Kosong")
-        # Assume first column has the data
-        components = set(df.iloc[:, 0].dropna().astype(str).str.strip().str.upper())
+            
+        components = {}
+        for _, row in df.iterrows():
+            part = str(row.iloc[0]).strip().upper()
+            if part and part != "NAN":
+                size = 1
+                if len(row) > 1:
+                    size_val = str(row.iloc[1]).strip().upper()
+                    if "2" in size_val:
+                        size = 2
+                components[part] = size
+                
         if not components:
             raise ServiceError("Tidak ada komponen valid di file.", title="Data Kosong")
         return components
     except Exception as exc:
         raise ServiceError(f"Gagal membaca file komponen Table 7: {exc}", title="Error Baca File")
+
+
+def get_master_mapping(ref_file: str) -> dict:
+    master_slots = {}
+    if not ref_file or not Path(ref_file).is_file():
+        return master_slots
+    
+    try:
+        df = pd.read_excel(ref_file, sheet_name="Table 7 Slots Detail")
+        slot_cols = [col for col in df.columns if str(col).startswith("Slot ")]
+        for _, row in df.iterrows():
+            for i, col in enumerate(slot_cols):
+                comp = str(row[col]).strip().upper()
+                if comp and comp != "NAN" and comp != "BLOCKED":
+                    if comp not in master_slots:
+                        master_slots[comp] = i
+    except Exception as exc:
+        raise ServiceError(f"Gagal membaca file Master Mapping: {exc}", title="Error Baca File")
+    return master_slots
 
 
 def analyze_table7_feeders(config: Table7FeederConfig, progress_callback=None) -> Table7FeederResult:
@@ -45,8 +75,9 @@ def analyze_table7_feeders(config: Table7FeederConfig, progress_callback=None) -
     if not config.table7_ref_file or not Path(config.table7_ref_file).is_file():
         raise ServiceError("File referensi Table 7 tidak valid.", title="Input Error")
 
-    _emit_progress(progress_callback, 0, "Membaca komponen Table 7...")
+    _emit_progress(progress_callback, 0, "Membaca referensi & Master Mapping...")
     table7_components = get_table7_components(config.table7_ref_file)
+    master_slots = get_master_mapping(config.master_mapping_file)
 
     _emit_progress(progress_callback, 5, "Scanning PCB folders...")
     models, total_files, read_files, skipped_files = _scan_models(
@@ -60,28 +91,69 @@ def analyze_table7_feeders(config: Table7FeederConfig, progress_callback=None) -
     pcb_rows = []
     
     for key, model in models.items():
-        # Get intersection of model's components and Table 7 components
         used_table7_parts = []
         for comp_key, comp_val in model.components.items():
             if comp_key.upper() in table7_components or comp_val.upper() in table7_components:
+                # Always use the value (part number) to check against dict
                 used_table7_parts.append(comp_val.upper())
                 
-        # Remove duplicates while preserving order if possible (they are already unique mostly)
         used_table7_parts = list(dict.fromkeys(used_table7_parts))
         used_table7_parts.sort()
         
-        comp_count = len(used_table7_parts)
+        slots = [None] * 30
+        unassigned_parts = []
+        
+        # 1. Place Master Mapping components
+        for part in used_table7_parts:
+            if part in master_slots:
+                start_idx = master_slots[part]
+                size = table7_components.get(part, 1)
+                if start_idx < 30:
+                    slots[start_idx] = part
+                    if size == 2 and start_idx + 1 < 30:
+                        slots[start_idx + 1] = "BLOCKED"
+                else:
+                    unassigned_parts.append(part)
+            else:
+                unassigned_parts.append(part)
+                
+        # 2. Place remaining components
+        overload = False
+        for part in unassigned_parts:
+            size = table7_components.get(part, 1)
+            placed = False
+            for i in range(30):
+                if size == 1:
+                    if slots[i] is None:
+                        slots[i] = part
+                        placed = True
+                        break
+                elif size == 2:
+                    if i + 1 < 30 and slots[i] is None and slots[i+1] is None:
+                        slots[i] = part
+                        slots[i+1] = "BLOCKED"
+                        placed = True
+                        break
+            if not placed:
+                overload = True
+        
+        comp_count = sum(1 for s in slots if s and s != "BLOCKED")
+        
         if comp_count == 0:
             status = "NO TABLE 7 PARTS"
-        elif comp_count <= 30:
-            status = "OK"
-        else:
+        elif overload:
             status = "OVERLOAD (> 30)"
-            
-        # Format slot assignment string
+        else:
+            status = "OK"
+
         slot_assignments = []
-        for idx, part in enumerate(used_table7_parts, start=1):
-            slot_assignments.append(f"Slot {idx}: {part}")
+        for idx, s in enumerate(slots, start=1):
+            if s and s != "BLOCKED":
+                size = table7_components.get(s, 1)
+                if size == 2:
+                    slot_assignments.append(f"Slot {idx}-{idx+1}: {s}")
+                else:
+                    slot_assignments.append(f"Slot {idx}: {s}")
         
         pcb_rows.append({
             "pcb_part_number": model.pcb_part_number,
@@ -90,7 +162,7 @@ def analyze_table7_feeders(config: Table7FeederConfig, progress_callback=None) -
             "excel_file_count": len(model.source_files),
             "members": "; ".join(model.source_files),
             "slot_assignments": "\n".join(slot_assignments) if slot_assignments else "-",
-            "_raw_parts": used_table7_parts,
+            "_slots_array": slots,
         })
         
     _emit_progress(progress_callback, 100, "Selesai")
@@ -117,7 +189,6 @@ def export_table7_result(result: Table7FeederResult, output_path: str):
 
     workbook = Workbook()
     
-    # 1. Summary Sheet
     summary_sheet = workbook.active
     summary_sheet.title = "Table 7 Fix Feeder Summary"
     columns = [
@@ -132,22 +203,17 @@ def export_table7_result(result: Table7FeederResult, output_path: str):
         summary_sheet.append([row.get(key, "") for key, _ in columns])
     _style_sheet(summary_sheet)
     
-    # 2. Detailed Slots Sheet
     slot_sheet = workbook.create_sheet("Table 7 Slots Detail")
     slot_sheet.append(["PCB Part Number", "Status", "Total Parts T7"] + [f"Slot {i}" for i in range(1, 31)])
     for row in result.pcb_rows:
         out_row = [row["pcb_part_number"], row["status"], row["table7_part_count"]]
-        parts = row["_raw_parts"]
-        # Fill slots 1 to 30
+        slots = row["_slots_array"]
         for i in range(30):
-            if i < len(parts):
-                out_row.append(parts[i])
-            else:
-                out_row.append("")
+            val = slots[i] if i < len(slots) and slots[i] else ""
+            out_row.append(val)
         slot_sheet.append(out_row)
     _style_sheet(slot_sheet)
     
-    # 3. Log Sheet
     log_sheet = workbook.create_sheet("Scan Log")
     log_rows = [
         ("Excel files found", result.total_files),
