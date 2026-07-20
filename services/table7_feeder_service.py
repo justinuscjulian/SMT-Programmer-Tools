@@ -1,4 +1,5 @@
 import pandas as pd
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime
@@ -50,20 +51,45 @@ def get_table7_components(ref_file: str) -> dict:
         raise ServiceError(f"Gagal membaca file komponen Table 7: {exc}", title="Error Baca File")
 
 
-def get_master_mapping(ref_file: str) -> dict:
+def get_master_mapping(ref_file: str, table7_components: dict) -> dict:
     master_slots = {}
     if not ref_file or not Path(ref_file).is_file():
         return master_slots
     
     try:
-        df = pd.read_excel(ref_file, sheet_name="Table 7 Slots Detail")
-        slot_cols = [col for col in df.columns if str(col).startswith("[7]")]
-        for _, row in df.iterrows():
-            for i, col in enumerate(slot_cols):
-                comp = str(row[col]).strip().upper()
-                if comp and comp != "NAN" and comp != "BLOCKED":
-                    if comp not in master_slots:
-                        master_slots[comp] = i
+        xls = pd.ExcelFile(ref_file)
+        if "Table 7 Slots Detail" in xls.sheet_names:
+            df = pd.read_excel(ref_file, sheet_name="Table 7 Slots Detail")
+            slot_cols = [col for col in df.columns if str(col).startswith("[7]")]
+            for _, row in df.iterrows():
+                for i, col in enumerate(slot_cols):
+                    comp = str(row[col]).strip().upper()
+                    if comp and comp != "NAN" and comp != "BLOCKED":
+                        if comp not in master_slots:
+                            master_slots[comp] = i
+        else:
+            def parse_slot(cell_val):
+                s = str(cell_val).strip().upper()
+                m1 = re.match(r'^\[7\](\d+)(?:-\d+)?$', s)
+                if m1:
+                    return int(m1.group(1))
+                m2 = re.match(r'^7(\d{2})(?:\.0)?$', s)
+                if m2:
+                    return int(m2.group(1))
+                return None
+                
+            for sheet in xls.sheet_names:
+                df = pd.read_excel(ref_file, sheet_name=sheet, header=None)
+                for r in range(df.shape[0]):
+                    for c in range(df.shape[1]):
+                        slot_num = parse_slot(df.iloc[r, c])
+                        if slot_num is not None and 1 <= slot_num <= 30:
+                            for offset in range(1, 6):
+                                if c + offset < df.shape[1]:
+                                    comp = str(df.iloc[r, c + offset]).strip().upper()
+                                    if comp in table7_components and comp not in master_slots:
+                                        master_slots[comp] = slot_num - 1
+                                        break
     except Exception as exc:
         raise ServiceError(f"Gagal membaca file Master Mapping: {exc}", title="Error Baca File")
     return master_slots
@@ -77,7 +103,7 @@ def analyze_table7_feeders(config: Table7FeederConfig, progress_callback=None) -
 
     _emit_progress(progress_callback, 0, "Membaca referensi & Master Mapping...")
     table7_components = get_table7_components(config.table7_ref_file)
-    master_slots = get_master_mapping(config.master_mapping_file)
+    master_slots = get_master_mapping(config.master_mapping_file, table7_components)
 
     _emit_progress(progress_callback, 5, "Scanning PCB folders...")
     models, total_files, read_files, skipped_files = _scan_models(
@@ -108,9 +134,17 @@ def analyze_table7_feeders(config: Table7FeederConfig, progress_callback=None) -
             if part in master_slots:
                 start_idx = master_slots[part]
                 size = table7_components.get(part, 1)
+                
+                can_place = False
                 if start_idx < 30:
+                    if size == 1 and slots[start_idx] is None:
+                        can_place = True
+                    elif size == 2 and start_idx + 1 < 30 and slots[start_idx] is None and slots[start_idx + 1] is None:
+                        can_place = True
+                        
+                if can_place:
                     slots[start_idx] = part
-                    if size == 2 and start_idx + 1 < 30:
+                    if size == 2:
                         slots[start_idx + 1] = "BLOCKED"
                 else:
                     unassigned_parts.append(part)
