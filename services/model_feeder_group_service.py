@@ -81,6 +81,7 @@ class ModelUsage:
     source_files: list[str]
     components: OrderedDict
     component_frequencies: dict = None
+    insert_averages: dict = None
 
     @property
     def component_count(self):
@@ -185,7 +186,14 @@ def _scan_models(source_folder, target_pcb_list, progress_callback=None):
     pcb_folders = _pcb_folders(folder)
     
     if target_pcb_list:
-        pcb_folders = [f for f in pcb_folders if any(target in f.name.upper() for target in target_pcb_list)]
+        def _folder_matches_target(folder_name, targets):
+            name_upper = folder_name.upper()
+            for target in targets:
+                # Match folders that start with INI_<target> (the primary PCB folder)
+                if name_upper.startswith(f"INI_{target}"):
+                    return True
+            return False
+        pcb_folders = [f for f in pcb_folders if _folder_matches_target(f.name, target_pcb_list)]
 
     folder_files_map = {pcb_folder: _excel_files_in_folder(pcb_folder) for pcb_folder in pcb_folders}
     total_files = sum(len(files) for files in folder_files_map.values())
@@ -200,6 +208,7 @@ def _scan_models(source_folder, target_pcb_list, progress_callback=None):
         merged_components = OrderedDict()
         component_frequencies = {}
         source_files = []
+        total_inserts = {}
         for file_path in excel_files:
             file_index += 1
             percent = max(1, min(95, int((file_index - 1) / max(1, total_files) * 95)))
@@ -222,6 +231,16 @@ def _scan_models(source_folder, target_pcb_list, progress_callback=None):
                 continue
 
             source_files.append(file_path.name)
+            
+            # Count inserts in this file
+            file_inserts = {}
+            for val in part_values:
+                k = _part_key(val)
+                if k:
+                    file_inserts[k] = file_inserts.get(k, 0) + 1
+            for k, count in file_inserts.items():
+                total_inserts[k] = total_inserts.get(k, 0) + count
+
             for key, part in components.items():
                 if key not in merged_components:
                     merged_components[key] = part
@@ -230,6 +249,12 @@ def _scan_models(source_folder, target_pcb_list, progress_callback=None):
         if not merged_components:
             skipped_files.append(f"{pcb_folder.name}: tidak ada component P/N valid dari semua Excel program")
             continue
+
+        insert_averages = {}
+        num_files = len(source_files)
+        if num_files > 0:
+            for k, count in total_inserts.items():
+                insert_averages[k] = count / num_files
 
         pcb_part_number = _pcb_part_number_for_folder(pcb_folder, source_files)
         folder_key = str(pcb_folder.resolve()).upper()
@@ -241,6 +266,7 @@ def _scan_models(source_folder, target_pcb_list, progress_callback=None):
             source_files=source_files,
             components=merged_components,
             component_frequencies=component_frequencies,
+            insert_averages=insert_averages,
         )
 
     models = OrderedDict(sorted(models.items(), key=lambda item: item[1].display_name.upper()))

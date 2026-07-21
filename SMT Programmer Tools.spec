@@ -1,34 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
-from pathlib import Path
-
-
-block_cipher = None
-project_dir = Path(SPECPATH)
 
 
 a = Analysis(
-    ["main.py"],
-    pathex=[str(project_dir)],
+    ['main.py'],
+    pathex=['.'],
     binaries=[],
-    datas=[("assets/*", "assets")],
-    hiddenimports=[
-        "openpyxl",
-        "pandas",
-        "pythoncom",
-        "pywintypes",
-        "win32com",
-        "win32com.client",
-        "win32timezone",
-        "xlrd",
-    ],
+    datas=[('assets', 'assets')],
+    hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["customtkinter", "tkinter"],
+    excludes=[],
     noarchive=False,
     optimize=0,
 )
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+pyz = PYZ(a.pure)
 
 exe = EXE(
     pyz,
@@ -36,7 +22,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="SMT Programmer Tools",
+    name='SMT Programmer Tools',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -49,5 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon="assets/app_logo.ico",
+    icon=['assets\\app_logo.ico'],
 )

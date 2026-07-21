@@ -406,11 +406,12 @@ def generate_npm_feeder_import_file(mapping_path, template_path, output_path):
     if mapping_file.suffix.lower() not in {".xlsx", ".xlsm"}:
         raise ServiceError("Input feeder mapping harus file Excel .xlsx/.xlsm.", title="Format tidak valid")
 
-    template = Path(_clean_path(template_path)) if template_path else Path(resource_path("assets/npm_base_template.txt"))
-    if not template.is_file():
-        raise ServiceError(f"Template program NPM tidak ditemukan:\n{template}", title="File tidak ditemukan")
-    if template.suffix.lower() not in {".txt", ".crb"} and template.name != "npm_base_template.txt":
-        raise ServiceError("Template NPM harus file .txt atau .crb.", title="Format tidak valid")
+    if template_path:
+        template = Path(_clean_path(template_path))
+        if not template.is_file():
+            raise ServiceError(f"Template program NPM tidak ditemukan:\n{template}", title="File tidak ditemukan")
+        if template.suffix.lower() not in {".txt", ".crb"}:
+            raise ServiceError("Template NPM harus file .txt atau .crb.", title="Format tidak valid")
 
     output = Path(output_path)
     if output.suffix.lower() != ".txt":
@@ -418,6 +419,12 @@ def generate_npm_feeder_import_file(mapping_path, template_path, output_path):
     output.parent.mkdir(parents=True, exist_ok=True)
 
     mapping_records, duplicate_rows = _load_import_mapping_workbook(mapping_file)
+
+    if not template_path:
+        template = _select_auto_template(mapping_records)
+    else:
+        template = Path(_clean_path(template_path))
+
     template_lines, encoding = read_lines_with_fallback(template)
     fixed_header = _fixed_feeder_header(template_lines)
     fixed_rows = _read_section_rows(template_lines, "FixedFeeder")
@@ -458,6 +465,7 @@ def generate_npm_feeder_import_file(mapping_path, template_path, output_path):
     missing_feeder_rows = []
     conflict_rows = []
     occupied = {}
+    blocked_pus = set()
 
     for record in sorted(mapping_records, key=_import_mapping_priority):
         part_number = record["part_number"]
@@ -470,8 +478,14 @@ def generate_npm_feeder_import_file(mapping_path, template_path, output_path):
 
         fixed_row = fixed_by_pu.get(str(record["pu"]))
         if fixed_row is None:
-            missing_location_rows.append(f"Row {record['row_number']}: {part_number} @ {location_code}")
-            continue
+            max_idnum = max([int(float(str(r.get("IDNUM", 0)))) for r in new_fixed_rows if str(r.get("IDNUM", "")).replace(".", "", 1).isdigit()], default=0)
+            base_row = {col: "0" for col in fixed_header}
+            base_row["IDNUM"] = str(max_idnum + 1)
+            base_row["Group"] = "0"
+            base_row["PU"] = str(record["pu"])
+            fixed_row = _empty_fixed_import_row(base_row)
+            new_fixed_rows.append(fixed_row)
+            fixed_by_pu[str(record["pu"])] = fixed_row
 
         conflict = _first_import_location_conflict(record, occupied)
         if conflict:
@@ -485,6 +499,7 @@ def generate_npm_feeder_import_file(mapping_path, template_path, output_path):
             record["uses_lr_position"],
             template_assignments,
             is_auto,
+            spans_slots=record.get("spans_slots", 1),
         )
         if not feeder_id:
             label = "compact L/R" if record["uses_lr_position"] else "non L/R"
@@ -502,6 +517,15 @@ def generate_npm_feeder_import_file(mapping_path, template_path, output_path):
         assigned_part_keys.add(part_key)
         assignment_count += 1
 
+        spans_slots = record.get("spans_slots", 1)
+        if spans_slots > 1:
+            for s in range(1, spans_slots):
+                blocked_pu = record["pu"] + s
+                blocked_pus.add(blocked_pu)
+
+    # Filter out rows that are blocked by multi-slot feeders
+    new_fixed_rows = [row for row in new_fixed_rows if int(float(str(row.get("PU", 0)))) not in blocked_pus]
+    new_fixed_rows.sort(key=lambda r: int(float(str(r.get("PU", 0)))))
     output_lines = _replace_feeder_import_sections(template_lines, fixed_header, new_fixed_rows, part_rows if is_auto else None)
     with output.open("w", encoding=encoding, newline="") as handle:
         handle.writelines(output_lines)
@@ -791,15 +815,22 @@ def _looks_like_import_header(first, second):
 
 
 def _parse_import_location_code(location_code):
-    match = re.match(r"^\[(\d+)\](\d+)(?:-\d+)?([LR])?$", str(location_code or "").strip(), flags=re.IGNORECASE)
+    match = re.match(r"^\[(\d+)\](\d+)(?:-(\d+))?([LR])?$", str(location_code or "").strip(), flags=re.IGNORECASE)
     if not match:
         return None
 
     table = int(match.group(1))
     slot = int(match.group(2))
-    suffix = str(match.group(3) or "").upper()
+    end_slot = int(match.group(3)) if match.group(3) else slot
+    spans_slots = end_slot - slot + 1
+    suffix = str(match.group(4) or "").upper()
     side = "B" if suffix == "R" else "A"
-    normalized_location = f"[{table}]{slot}{suffix}"
+    
+    normalized_location = f"[{table}]{slot}"
+    if end_slot > slot:
+        normalized_location += f"-{end_slot}"
+    normalized_location += suffix
+
     return {
         "table": table,
         "slot": slot,
@@ -807,7 +838,30 @@ def _parse_import_location_code(location_code):
         "side": side,
         "uses_lr_position": suffix in {"L", "R"},
         "normalized_location": normalized_location,
+        "spans_slots": spans_slots,
     }
+
+
+def _select_auto_template(mapping_records):
+    has_large_slot_table_1_4 = False
+    has_table_8 = False
+    for record in mapping_records:
+        table = record.get("table", 0)
+        slot = record.get("slot", 0)
+        if table in (1, 2, 3, 4) and slot > 17:
+            has_large_slot_table_1_4 = True
+        if table == 8:
+            has_table_8 = True
+
+    if has_large_slot_table_1_4:
+        if has_table_8:
+            template_name = "assets/npm_base_template_line67.txt"
+        else:
+            template_name = "assets/npm_base_template_line8.txt"
+    else:
+        template_name = "assets/npm_base_template.txt"
+
+    return Path(resource_path(template_name))
 
 
 def _import_mapping_priority(record):
@@ -828,13 +882,13 @@ def _build_part_lookup_by_name(parts_rows):
     return lookup
 
 
-def _feeder_id_for_import_location(part_key, part_row, feeder_lookup, uses_lr_position, template_assignments, is_auto=False):
+def _feeder_id_for_import_location(part_key, part_row, feeder_lookup, uses_lr_position, template_assignments, is_auto=False, spans_slots=1):
     candidates = _part_feeder_candidates(part_row, feeder_lookup)
     if not candidates:
         candidates = _template_feeder_candidates(part_key, feeder_lookup, template_assignments)
 
     if not candidates and is_auto:
-        inferred = _infer_npm_feeder_id(part_key)
+        inferred = _infer_npm_feeder_id(part_key, uses_lr_position=uses_lr_position, spans_slots=spans_slots)
         if inferred in feeder_lookup:
             candidates = [(inferred, feeder_lookup[inferred])]
 
@@ -849,8 +903,23 @@ def _feeder_id_for_import_location(part_key, part_row, feeder_lookup, uses_lr_po
             return feeder_id
     return ""
 
-def _infer_npm_feeder_id(part_number):
+def _infer_npm_feeder_id(part_number, uses_lr_position=True, spans_slots=1):
+    if spans_slots == 2:
+        return "304421" # 24mm width feeder
+    if spans_slots >= 3:
+        return "305221" # 32mm width feeder
+
     key = _part_key(part_number)
+    
+    if not uses_lr_position:
+        if not key:
+            return "302001"
+        if key.startswith(("EAN", "EAH", "EBK", "EAP", "EAV", "EAG", "MDS")):
+            return "303623" # 16mm/24mm non-L/R
+        elif key.startswith(("EAM", "EAF", "EBC", "ERH", "EAE")):
+            return "302983" # 12mm non-L/R
+        return "302001" # 8mm non-L/R
+
     if not key:
         return "302481"
     
@@ -937,10 +1006,17 @@ def _set_fixed_import_assignment(row, side, feeder_id, part_id, uses_lr_position
 
 
 def _import_occupied_keys(record):
-    pu = str(record["pu"])
-    if record["uses_lr_position"]:
-        return [(pu, record["side"])]
-    return [(pu, "A"), (pu, "B")]
+    pu_val = int(record["pu"])
+    spans_slots = record.get("spans_slots", 1)
+    keys = []
+    for s in range(spans_slots):
+        pu = str(pu_val + s)
+        if record["uses_lr_position"]:
+            keys.append((pu, record["side"]))
+        else:
+            keys.append((pu, "A"))
+            keys.append((pu, "B"))
+    return keys
 
 
 def _first_import_location_conflict(record, occupied):
@@ -1472,6 +1548,21 @@ def _append_summary_sheet(worksheet, summary_records):
     _style_summary_sheet(worksheet, header_row)
 
 
+def _most_frequent_location_set(item):
+    if not item.get("set_counts"):
+        return ()
+    best_sets = []
+    for loc_set, count in item["set_counts"].items():
+        total_inserts = sum(item["location_counts"].get(loc, 0) for loc in loc_set)
+        best_sets.append((loc_set, count, total_inserts))
+    
+    # Sort by file count (desc), total inserts (desc), natural sort
+    best_sets.sort(
+        key=lambda x: (-x[1], -x[2], [natural_sort_key(loc) for loc in x[0]])
+    )
+    return best_sets[0][0]
+
+
 def _build_summary_records(mappings):
     stats = {}
 
@@ -1508,12 +1599,13 @@ def _build_summary_records(mappings):
             for location_code in locations:
                 item["location_file_counts"][location_code] += 1
 
-    balancing_parts = _detect_balancing_part_keys(stats)
     summary_records = []
     for key, item in stats.items():
-        location_items = _sorted_location_counts(item["location_file_counts"])
-        if not location_items:
+        top_set = _most_frequent_location_set(item)
+        if not top_set:
             continue
+            
+        location_items = _sorted_location_counts(item["location_file_counts"])
         candidates = [
             {
                 "location": location,
@@ -1522,7 +1614,12 @@ def _build_summary_records(mappings):
             }
             for location, file_count in location_items
         ]
-        balancing_locations = _summary_balancing_locations(item) if key in balancing_parts else []
+        
+        balancing_locations = list(top_set) if len(top_set) > 1 else []
+        
+        # Get the file count for this exact top set
+        top_set_file_count = item["set_counts"].get(top_set, 0)
+        
         summary_records.append(
             {
                 "part_number": item["part_number"],
@@ -1530,6 +1627,7 @@ def _build_summary_records(mappings):
                 "total_count": sum(item["location_counts"].values()),
                 "candidates": candidates,
                 "balancing_locations": balancing_locations,
+                "top_set_file_count": top_set_file_count,
             }
         )
 
@@ -1583,7 +1681,7 @@ def _resolve_summary_location_conflicts(summary_records):
         key=lambda row: (
             0 if row.get("balancing_locations") else 1,
             len(row["balancing_locations"] or row["candidates"]),
-            -row["candidates"][0]["file_count"],
+            -row.get("top_set_file_count", row["candidates"][0]["file_count"]),
             -row["file_count"],
             natural_sort_key(row["part_number"]),
         ),
@@ -1726,6 +1824,7 @@ def _build_npm_feeder_recommendations(mappings, balancing_parts):
                 {
                     "part_number": part_number,
                     "location_counts": Counter(),
+                    "location_file_counts": Counter(),
                     "feeder_counts": {},
                     "set_counts": Counter(),
                     "file_count": 0,
@@ -1743,8 +1842,10 @@ def _build_npm_feeder_recommendations(mappings, balancing_parts):
             item["file_count"] += 1
             if len(location_set) > 1:
                 item["multi_file_count"] += 1
+            for location_code in locations:
+                item["location_file_counts"][location_code] += 1
 
-    balancing_parts = set(balancing_parts or set()) | set(DEFAULT_BALANCING_PART_NUMBERS) | _detect_balancing_part_keys(stats)
+    balancing_parts = set(balancing_parts or set()) | set(DEFAULT_BALANCING_PART_NUMBERS)
 
     recommendations = {}
     for key, item in stats.items():
@@ -1763,36 +1864,27 @@ def _build_npm_feeder_recommendations(mappings, balancing_parts):
     return recommendations
 
 
-def _detect_balancing_part_keys(stats):
-    balancing_parts = set()
-    for key, item in stats.items():
-        if _most_common_multi_location_set(item):
-            balancing_parts.add(key)
-    return balancing_parts
-
-
 def _recommended_locations_for_part(part_key, item, balancing_parts):
-    location_items = _sorted_location_counts(item["location_counts"])
-    if not location_items:
-        return []
-
-    if part_key in balancing_parts:
-        balanced_locations = _most_common_multi_location_set(item)
-        if balanced_locations:
-            return balanced_locations
-
-        top_count = location_items[0][1]
-        min_count = max(2, int(top_count * 0.25))
-        return [location for location, count in location_items if count >= min_count]
-
-    set_items = item["set_counts"].most_common()
-    if set_items:
-        top_set, top_set_count = set_items[0]
-        enough_multi_files = item["multi_file_count"] >= max(3, int(item["file_count"] * 0.5))
-        if len(top_set) > 1 and enough_multi_files and top_set_count >= 3:
+    top_set = _most_frequent_location_set(item)
+    is_balancing = (part_key in balancing_parts) or (len(top_set) > 1)
+    
+    if is_balancing:
+        # If it's a balancing part but top set is single-slot, try to find a multi-slot set
+        if len(top_set) <= 1:
+            multi_set = _most_common_multi_location_set(item)
+            if multi_set:
+                return list(multi_set)
+        if top_set:
             return list(top_set)
-
-    return [location_items[0][0]]
+            
+    if top_set:
+        return list(top_set)
+        
+    counts_dict = item.get("location_file_counts") or item["location_counts"]
+    location_items = _sorted_location_counts(counts_dict)
+    if location_items:
+        return [location_items[0][0]]
+    return []
 
 
 def _most_common_multi_location_set(item):
