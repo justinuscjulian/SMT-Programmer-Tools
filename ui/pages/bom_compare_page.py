@@ -469,7 +469,7 @@ class BomComparePage(WorkerPage):
 
     def set_auto_detect_folder(self):
         settings = QSettings("SMTTools", "BomComparatorQt")
-        current_dir = settings.value("auto_import_dir", r"C:\PROGRAMMER")
+        current_dir = settings.value("auto_import_dir", r"C:\Users\UTIN\Documents\SMT PROGRAMMER\MAKER")
         new_dir = QFileDialog.getExistingDirectory(self, "Pilih Folder Auto Detect", current_dir)
         if new_dir:
             settings.setValue("auto_import_dir", new_dir)
@@ -477,7 +477,7 @@ class BomComparePage(WorkerPage):
 
     def auto_detect_files(self):
         settings = QSettings("SMTTools", "BomComparatorQt")
-        target_dir = settings.value("auto_import_dir", r"C:\PROGRAMMER")
+        target_dir = settings.value("auto_import_dir", r"C:\Users\UTIN\Documents\SMT PROGRAMMER\MAKER")
         if not os.path.isdir(target_dir):
             QMessageBox.warning(self, "Warning", f"Folder {target_dir} tidak ditemukan.")
             return

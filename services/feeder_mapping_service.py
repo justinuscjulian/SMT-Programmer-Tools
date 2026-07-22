@@ -1170,7 +1170,10 @@ def _build_mapping_records(fixed_rows, part_lookup, feeder_lookup):
             continue
 
         feeder_for_kind = feeder_a if active_a else feeder_b
-        kind = _feeder_kind(feeder_lookup.get(feeder_for_kind, {}))
+        feeder_row = feeder_lookup.get(feeder_for_kind, {})
+        kind = _feeder_kind(feeder_row)
+        span = _feeder_slot_span(feeder_row)
+
         if kind == 2:
             if active_a:
                 records.append(_record(table, slot, "L", f"[{table}]{slot}L", part_lookup[part_a]["NAME"], feeder_a))
@@ -1182,17 +1185,30 @@ def _build_mapping_records(fixed_rows, part_lookup, feeder_lookup):
             records.append(_record(table, slot, f"Kind {kind or 'Unknown'} R", f"[{table}]{slot}R", part_lookup[part_b]["NAME"], feeder_b))
             continue
 
-        if kind == 3:
-            records.append(_record(table, slot, "Large (2-Rel)", f"[{table}]{slot}", part_lookup[part_a]["NAME"], feeder_a))
+        if span == 2:
+            records.append(_record(table, slot, "Large (2-Rel)", f"[{table}]{slot}-{slot + 1}", part_lookup[part_a]["NAME"], feeder_a))
             continue
 
-        if kind == 4:
+        if span == 3:
             records.append(
                 _record(
                     table,
                     slot,
                     "Extra Large (3-Rel)",
-                    f"[{table}]{slot}-{slot + 1}",
+                    f"[{table}]{slot}-{slot + 2}",
+                    part_lookup[part_a]["NAME"],
+                    feeder_a,
+                )
+            )
+            continue
+
+        if span > 3:
+            records.append(
+                _record(
+                    table,
+                    slot,
+                    f"Multi-Rel ({span}-Rel)",
+                    f"[{table}]{slot}-{slot + span - 1}",
                     part_lookup[part_a]["NAME"],
                     feeder_a,
                 )
@@ -1443,6 +1459,31 @@ def _feeder_kind(feeder_row):
         return int(float(str(feeder_row.get("Kind", "0")).strip()))
     except (TypeError, ValueError):
         return 0
+
+
+def _feeder_slot_span(feeder_row):
+    if not feeder_row:
+        return 1
+    kind = _feeder_kind(feeder_row)
+    name = str(feeder_row.get("NAME", "")).lower()
+
+    if "56mm" in name:
+        return 4
+    if "32mm" in name or "44mm" in name:
+        return 3
+    if "24mm" in name:
+        return 2
+
+    if kind in (1, 2, 3):
+        return 1
+    if kind == 4:
+        return 2
+    if kind == 5:
+        return 3
+    if kind >= 6:
+        return kind - 2
+
+    return 1
 
 
 def _safe_int(value):
@@ -1991,12 +2032,19 @@ def _fixed_row_assignments(row, part_lookup, feeder_lookup):
         if not _is_active(feeder_id, part_id, part_lookup):
             continue
 
-        kind = _feeder_kind(feeder_lookup.get(feeder_id, {}))
+        feeder_row = feeder_lookup.get(feeder_id, {})
+        kind = _feeder_kind(feeder_row)
+        span = _feeder_slot_span(feeder_row)
+
         if kind == 2:
             position = "L" if side == "A" else "R"
             location_code = f"[{table}]{slot}{position}"
-        elif kind == 4:
+        elif span == 2:
             location_code = f"[{table}]{slot}-{slot + 1}"
+        elif span == 3:
+            location_code = f"[{table}]{slot}-{slot + 2}"
+        elif span > 3:
+            location_code = f"[{table}]{slot}-{slot + span - 1}"
         else:
             location_code = f"[{table}]{slot}"
 

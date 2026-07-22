@@ -82,6 +82,7 @@ class ModelUsage:
     components: OrderedDict
     component_frequencies: dict = None
     insert_averages: dict = None
+    variant_components: dict = None
 
     @property
     def component_count(self):
@@ -209,6 +210,7 @@ def _scan_models(source_folder, target_pcb_list, progress_callback=None):
         component_frequencies = {}
         source_files = []
         total_inserts = {}
+        variant_components = {}
         for file_path in excel_files:
             file_index += 1
             percent = max(1, min(95, int((file_index - 1) / max(1, total_files) * 95)))
@@ -231,8 +233,12 @@ def _scan_models(source_folder, target_pcb_list, progress_callback=None):
                 continue
 
             source_files.append(file_path.name)
-            
-            # Count inserts in this file
+
+            import re
+            m_prog = re.search(r'(EB[TU]\d+)', file_path.name)
+            vname = m_prog.group(1) if m_prog else file_path.stem
+            variant_components[vname] = set(components.keys())
+
             file_inserts = {}
             for val in part_values:
                 k = _part_key(val)
@@ -267,6 +273,7 @@ def _scan_models(source_folder, target_pcb_list, progress_callback=None):
             components=merged_components,
             component_frequencies=component_frequencies,
             insert_averages=insert_averages,
+            variant_components=variant_components,
         )
 
     models = OrderedDict(sorted(models.items(), key=lambda item: item[1].display_name.upper()))

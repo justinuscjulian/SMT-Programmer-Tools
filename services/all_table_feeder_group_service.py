@@ -79,6 +79,25 @@ class VirtualMachine:
         new_vm.tables = copy.deepcopy(self.tables)
         return new_vm
 
+    def remove(self, loc_str):
+        parsed = self._parse_loc(loc_str)
+        if not parsed:
+            return
+        t, s1, s2, pos = parsed
+        if t not in self.tables:
+            return
+        for s in range(s1, s2 + 1):
+            idx = s - 1
+            if idx >= len(self.tables[t]):
+                continue
+            if pos == 'L':
+                self.tables[t][idx]['L'] = False
+            elif pos == 'R':
+                self.tables[t][idx]['R'] = False
+            else:
+                self.tables[t][idx]['L'] = False
+                self.tables[t][idx]['R'] = False
+
     def find_fallback(self, loc_str):
         parsed = self._parse_loc(loc_str)
         if not parsed:
@@ -123,20 +142,22 @@ class VirtualMachine:
 
 
 class PcbInfo:
-    def __init__(self, part_number, file_path, components, insert_averages=None):
+    def __init__(self, part_number, file_path, components, insert_averages=None, variant_components=None):
         self.part_number = part_number
         self.file_path = file_path
         self.components = components
         self.insert_averages = insert_averages or {}
+        self.variant_components = variant_components or {}
 
 
 class GroupResult:
-    def __init__(self, group_name, pcbs, slot_mapping, part_mapping, unassigned_parts=None):
+    def __init__(self, group_name, pcbs, slot_mapping, part_mapping, unassigned_parts=None, substitute_mapping=None):
         self.group_name = group_name
         self.pcbs = pcbs
         self.slot_mapping = slot_mapping
         self.part_mapping = part_mapping
         self.unassigned_parts = unassigned_parts or []
+        self.substitute_mapping = substitute_mapping or {}
 
 def get_master_mapping(excel_path, line_type=None):
     wb = load_workbook(excel_path, read_only=True, data_only=True)
@@ -183,6 +204,306 @@ def get_master_mapping(excel_path, line_type=None):
             "alternatives": other_locs
         })
     return master
+
+
+def _bipartition_pcbs(raw_group, models):
+    if len(raw_group) <= 1:
+        return raw_group, []
+    if len(raw_group) == 2:
+        return [raw_group[0]], [raw_group[1]]
+
+    comp_sets = {}
+    for pcb_name in raw_group:
+        m = models[pcb_name]
+        comp_sets[pcb_name] = set(str(val).strip().upper() for val in m.components.values() if val)
+
+    min_sim = 1.1
+    best_pair = (raw_group[0], raw_group[1])
+    for i in range(len(raw_group)):
+        for j in range(i + 1, len(raw_group)):
+            p1, p2 = raw_group[i], raw_group[j]
+            s1, s2 = comp_sets[p1], comp_sets[p2]
+            inter = len(s1 & s2)
+            union = len(s1 | s2)
+            sim = inter / max(1, union)
+            if sim < min_sim:
+                min_sim = sim
+                best_pair = (p1, p2)
+
+    seed1, seed2 = best_pair
+    sub1 = [seed1]
+    sub2 = [seed2]
+
+    for pcb_name in raw_group:
+        if pcb_name in (seed1, seed2):
+            continue
+        p_set = comp_sets[pcb_name]
+        overlap1 = sum(len(p_set & comp_sets[s]) for s in sub1) / len(sub1)
+        overlap2 = sum(len(p_set & comp_sets[s]) for s in sub2) / len(sub2)
+        if overlap1 >= overlap2:
+            sub1.append(pcb_name)
+        else:
+            sub2.append(pcb_name)
+
+    return sub1, sub2
+
+
+def _process_and_split_group(raw_group, group_label, models, master, global_vm, global_slot_mapping, global_part_mapping, global_unassigned, line_type):
+    group_pcbs = []
+    for pcb_name in raw_group:
+        model = models[pcb_name]
+        group_pcbs.append(PcbInfo(
+            part_number=model.display_name,
+            file_path="",
+            components=set(str(val).strip().upper() for val in model.components.values() if val),
+            insert_averages=model.insert_averages,
+            variant_components=getattr(model, "variant_components", {})
+        ))
+
+    variant_usage = {}
+    for pcb in group_pcbs:
+        if pcb.variant_components:
+            for vname, vparts in pcb.variant_components.items():
+                vlabel = f"{pcb.part_number} ({vname})" if (vname != pcb.part_number and not vname.startswith(pcb.part_number)) else pcb.part_number
+                if len(pcb.variant_components) > 1 and vname not in vlabel:
+                    vlabel = f"{pcb.part_number} ({vname})"
+                for comp in vparts:
+                    comp_u = str(comp).strip().upper()
+                    if comp_u not in variant_usage:
+                        variant_usage[comp_u] = set()
+                    variant_usage[comp_u].add(vlabel)
+        else:
+            for comp in pcb.components:
+                comp_u = str(comp).strip().upper()
+                if comp_u not in variant_usage:
+                    variant_usage[comp_u] = set()
+                variant_usage[comp_u].add(pcb.part_number)
+
+    def part_sort_key(p):
+        loc_list = master.get(p, [])
+        num_options = 0
+        for item in loc_list:
+            if item["location"]:
+                num_options += 1
+            num_options += len(item.get("alternatives", []))
+        if num_options == 0:
+            num_options = 999
+        v_count = len(variant_usage.get(p, set()))
+        master_freq = max([item["frequency"] for item in loc_list], default=0)
+        return (-v_count, num_options, -master_freq)
+
+    group_all_parts = set(variant_usage.keys())
+    sorted_parts = sorted(list(group_all_parts), key=part_sort_key)
+
+    vm = global_vm.copy()
+    slot_mapping = global_slot_mapping.copy()
+    part_mapping = global_part_mapping.copy()
+    unassigned_parts = []
+
+    placed_global_parts = set(global_slot_mapping.values())
+    parts_to_place = [p for p in sorted_parts if p not in placed_global_parts]
+
+    for part in parts_to_place:
+        loc_list = master.get(part, [])
+        if not loc_list:
+            unassigned_parts.append(part)
+            continue
+        loc_list = sorted(loc_list, key=lambda x: x["frequency"], reverse=True)
+        inserts_in_group = [pcb.insert_averages.get(part, 0) for pcb in group_pcbs]
+        avg_inserts = sum(inserts_in_group) / len(group_pcbs) if group_pcbs else 0
+        is_balancing = (avg_inserts >= 20) and (len(loc_list) > 1)
+
+        if is_balancing:
+            placed_slots = []
+            for loc_item in loc_list:
+                loc = loc_item["location"]
+                if not loc:
+                    continue
+                if vm.can_add(loc):
+                    vm.add(loc)
+                    slot_mapping[loc] = part
+                    placed_slots.append(loc)
+                else:
+                    fallback = vm.find_fallback(loc)
+                    if fallback:
+                        vm.add(fallback)
+                        slot_mapping[fallback] = part
+                        placed_slots.append(fallback)
+            if placed_slots:
+                part_mapping[part] = placed_slots[0]
+            else:
+                unassigned_parts.append(part)
+        else:
+            primary_loc = loc_list[0]["location"]
+            if not primary_loc:
+                unassigned_parts.append(part)
+                continue
+            candidates = [primary_loc]
+            for alt in loc_list[0].get("alternatives", []):
+                if alt and alt not in candidates:
+                    candidates.append(alt)
+            placed = False
+            for loc in candidates:
+                if vm.can_add(loc):
+                    vm.add(loc)
+                    slot_mapping[loc] = part
+                    part_mapping[part] = loc
+                    placed = True
+                    break
+                else:
+                    fallback = vm.find_fallback(loc)
+                    if fallback:
+                        vm.add(fallback)
+                        slot_mapping[fallback] = part
+                        part_mapping[fallback] = fallback
+                        placed = True
+                        break
+            if not placed:
+                unassigned_parts.append(part)
+
+    # Strategy 2: Swap on Conflict
+    def _get_valid_locs(p):
+        locs = []
+        for item in master.get(p, []):
+            if item["location"]:
+                locs.append(item["location"])
+            for alt in item.get("alternatives", []):
+                if alt:
+                    locs.append(alt)
+        seen = set()
+        unique = []
+        for loc in locs:
+            if loc not in seen:
+                seen.add(loc)
+                unique.append(loc)
+        return unique
+
+    swap_resolved = []
+    for part in unassigned_parts:
+        valid_locs = _get_valid_locs(part)
+        if not valid_locs:
+            swap_resolved.append(part)
+            continue
+        swapped = False
+        for loc in valid_locs:
+            if loc not in slot_mapping and vm.can_add(loc):
+                vm.add(loc)
+                slot_mapping[loc] = part
+                part_mapping[part] = loc
+                swapped = True
+                break
+            if loc not in slot_mapping:
+                continue
+            occupant = slot_mapping[loc]
+            if occupant in placed_global_parts:
+                continue
+            occupant_valid = _get_valid_locs(occupant)
+            for occ_alt in occupant_valid:
+                if occ_alt == loc or occ_alt in slot_mapping:
+                    continue
+                if vm.can_add(occ_alt):
+                    vm.remove(loc)
+                    vm.add(occ_alt)
+                    vm.add(loc)
+                    del slot_mapping[loc]
+                    slot_mapping[occ_alt] = occupant
+                    slot_mapping[loc] = part
+                    part_mapping[occupant] = occ_alt
+                    part_mapping[part] = loc
+                    swapped = True
+                    break
+            if swapped:
+                break
+        if not swapped:
+            swap_resolved.append(part)
+
+    unassigned_parts = swap_resolved
+
+    # Strategy 3: Substitute Component Slots (Per-Variant & Per-PCB aware)
+    variant_usage = {}
+    for pcb in group_pcbs:
+        if pcb.variant_components:
+            for vname, vparts in pcb.variant_components.items():
+                vlabel = f"{pcb.part_number} ({vname})" if (vname != pcb.part_number and not vname.startswith(pcb.part_number)) else pcb.part_number
+                if len(pcb.variant_components) > 1 and vname not in vlabel:
+                    vlabel = f"{pcb.part_number} ({vname})"
+                for comp in vparts:
+                    comp_u = str(comp).strip().upper()
+                    if comp_u not in variant_usage:
+                        variant_usage[comp_u] = set()
+                    variant_usage[comp_u].add(vlabel)
+        else:
+            for comp in pcb.components:
+                comp_u = str(comp).strip().upper()
+                if comp_u not in variant_usage:
+                    variant_usage[comp_u] = set()
+                variant_usage[comp_u].add(pcb.part_number)
+
+    substitute_mapping = {}
+    slot_sub_vars = {}
+    final_unassigned = []
+
+    for part in unassigned_parts:
+        part_vars = variant_usage.get(part, set())
+        if not part_vars:
+            final_unassigned.append(part)
+            continue
+        valid_locs = _get_valid_locs(part)
+        if not valid_locs:
+            final_unassigned.append(part)
+            continue
+        valid_tables = set()
+        for vloc in valid_locs:
+            parsed_vloc = vm._parse_loc(vloc)
+            if parsed_vloc:
+                valid_tables.add(parsed_vloc[0])
+        if not valid_tables:
+            final_unassigned.append(part)
+            continue
+        best_slot = None
+        for loc, occupant in slot_mapping.items():
+            parsed_loc = vm._parse_loc(loc)
+            if not parsed_loc or parsed_loc[0] not in valid_tables:
+                continue
+            occupant_vars = variant_usage.get(occupant, set())
+            existing_sub_vars = slot_sub_vars.get(loc, set())
+            blocked_vars = occupant_vars | existing_sub_vars
+            if not (part_vars & blocked_vars):
+                best_slot = loc
+                break
+        if best_slot:
+            if best_slot not in substitute_mapping:
+                substitute_mapping[best_slot] = []
+            var_names = sorted(list(part_vars))
+            substitute_mapping[best_slot].append((part, var_names))
+            if best_slot not in slot_sub_vars:
+                slot_sub_vars[best_slot] = set()
+            slot_sub_vars[best_slot].update(part_vars)
+        else:
+            final_unassigned.append(part)
+
+    unassigned_parts = final_unassigned
+
+    # AUTO-SPLIT CHECK (splits multi-PCB groups ONLY if physical capacity is exceeded for master parts):
+    overload_unassigned = [p for p in unassigned_parts if master.get(p)]
+
+    if overload_unassigned and len(raw_group) > 1:
+        sub1, sub2 = _bipartition_pcbs(raw_group, models)
+        label1 = f"{group_label}A" if not group_label[-1].isalpha() else f"{group_label}-1"
+        label2 = f"{group_label}B" if not group_label[-1].isalpha() else f"{group_label}-2"
+        res1 = _process_and_split_group(sub1, label1, models, master, global_vm, global_slot_mapping, global_part_mapping, global_unassigned, line_type)
+        res2 = _process_and_split_group(sub2, label2, models, master, global_vm, global_slot_mapping, global_part_mapping, global_unassigned, line_type)
+        return res1 + res2
+
+    return [GroupResult(
+        group_name=group_label,
+        pcbs=group_pcbs,
+        slot_mapping=slot_mapping,
+        part_mapping=part_mapping,
+        unassigned_parts=unassigned_parts,
+        substitute_mapping=substitute_mapping
+    )]
+
 
 def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, line_type, min_sim, min_shared, progress_callback=None):
     _emit_progress(progress_callback, 0, "Membaca referensi & Master Mapping...")
@@ -260,113 +581,114 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
     _emit_progress(progress_callback, 60, "Membangun setup feeder untuk masing-masing grup...")
     
     total_groups = len(raw_groups)
-    
-    for i, raw_group in enumerate(raw_groups):
-        group_pcbs = []
+
+    # Phase 1: Determine Global Base Components (parts used across ALL groups)
+    group_parts_sets = []
+    for raw_group in raw_groups:
+        parts_in_g = set()
         for pcb_name in raw_group:
-            model = models[pcb_name]
-            group_pcbs.append(PcbInfo(
-                part_number=model.display_name, # clean name instead of path
-                file_path="",
-                components=set(str(val).strip().upper() for val in model.components.values() if val),
-                insert_averages=model.insert_averages
-            ))
+            m = models[pcb_name]
+            parts_in_g.update(set(str(val).strip().upper() for val in m.components.values() if val))
+        group_parts_sets.append(parts_in_g)
         
-        # Calculate component frequency strictly within this group
-        group_part_freq = {}
-        group_all_parts = set()
-        for pcb in group_pcbs:
-            for part in pcb.components:
-                group_part_freq[part] = group_part_freq.get(part, 0) + 1
-                group_all_parts.add(part)
-                
-        # Sort components: primarily by frequency in this group, then by global master frequency
-        def part_sort_key(p):
-            local_freq = group_part_freq.get(p, 0)
-            loc_list = master.get(p, [])
-            master_freq = max([item["frequency"] for item in loc_list], default=0)
-            return (local_freq, master_freq)
-            
-        sorted_parts = sorted(list(group_all_parts), key=part_sort_key, reverse=True)
-        
-        vm = VirtualMachine(line_type=line_type)
-        slot_mapping = {}
-        part_mapping = {}
-        unassigned_parts = []
-        
-        for part in sorted_parts:
-            loc_list = master.get(part, [])
-            if not loc_list:
-                unassigned_parts.append(part)
-                continue
-                
-            loc_list = sorted(loc_list, key=lambda x: x["frequency"], reverse=True)
-            
-            # Check avg inserts in this group
-            inserts_in_group = [pcb.insert_averages.get(part, 0) for pcb in group_pcbs]
-            avg_inserts = sum(inserts_in_group) / len(group_pcbs) if group_pcbs else 0
-            
-            is_balancing = (avg_inserts >= 20) and (len(loc_list) > 1)
-            
-            if is_balancing:
-                placed_slots = []
-                for loc_item in loc_list:
-                    loc = loc_item["location"]
-                    if not loc:
-                        continue
-                    if vm.can_add(loc):
-                        vm.add(loc)
-                        slot_mapping[loc] = part
-                        placed_slots.append(loc)
-                    else:
-                        fallback = vm.find_fallback(loc)
-                        if fallback:
-                            vm.add(fallback)
-                            slot_mapping[fallback] = part
-                            placed_slots.append(fallback)
-                if placed_slots:
-                    part_mapping[part] = placed_slots[0]
-                else:
-                    unassigned_parts.append(part)
-            else:
-                primary_loc = loc_list[0]["location"]
-                if not primary_loc:
-                    unassigned_parts.append(part)
+    global_base_parts = set()
+    if len(group_parts_sets) > 1:
+        global_base_parts = set.intersection(*group_parts_sets)
+    elif len(group_parts_sets) == 1:
+        all_pcb_sets = []
+        for pcb_name in raw_groups[0]:
+            m = models[pcb_name]
+            all_pcb_sets.append(set(str(val).strip().upper() for val in m.components.values() if val))
+        if all_pcb_sets:
+            global_base_parts = set.intersection(*all_pcb_sets)
+
+    # Phase 2: Lock Global Base Components to identical slots across all groups
+    global_vm = VirtualMachine(line_type=line_type)
+    global_slot_mapping = {}
+    global_part_mapping = {}
+    global_unassigned = []
+
+    def _global_sort_key(p):
+        loc_list = master.get(p, [])
+        num_options = 0
+        for item in loc_list:
+            if item["location"]:
+                num_options += 1
+            num_options += len(item.get("alternatives", []))
+        if num_options == 0:
+            num_options = 999
+        master_freq = max([item["frequency"] for item in loc_list], default=0)
+        return (num_options, -master_freq)
+
+    sorted_global_base = sorted(list(global_base_parts), key=_global_sort_key)
+
+    # Compute global average inserts across all models for balancing check
+    all_model_count = max(1, len(models))
+
+    for part in sorted_global_base:
+        loc_list = master.get(part, [])
+        if not loc_list:
+            global_unassigned.append(part)
+            continue
+        loc_list = sorted(loc_list, key=lambda x: x["frequency"], reverse=True)
+
+        # Check global average inserts for balancing
+        inserts_total = sum(model.insert_averages.get(part, 0) for model in models.values())
+        avg_inserts = inserts_total / all_model_count
+        is_balancing = (avg_inserts >= 20) and (len(loc_list) > 1)
+
+        if is_balancing:
+            placed_slots = []
+            for loc_item in loc_list:
+                loc = loc_item["location"]
+                if not loc:
                     continue
-                
-                # Build candidates list: primary location first, then alternatives in order, removing duplicates
-                candidates = [primary_loc]
-                for alt in loc_list[0].get("alternatives", []):
-                    if alt and alt not in candidates:
-                        candidates.append(alt)
-                
-                placed = False
-                for loc in candidates:
-                    if vm.can_add(loc):
-                        vm.add(loc)
-                        slot_mapping[loc] = part
-                        part_mapping[part] = loc
+                if global_vm.can_add(loc):
+                    global_vm.add(loc)
+                    global_slot_mapping[loc] = part
+                    placed_slots.append(loc)
+                else:
+                    fallback = global_vm.find_fallback(loc)
+                    if fallback:
+                        global_vm.add(fallback)
+                        global_slot_mapping[fallback] = part
+                        placed_slots.append(fallback)
+            if placed_slots:
+                global_part_mapping[part] = placed_slots[0]
+            else:
+                global_unassigned.append(part)
+        else:
+            primary_loc = loc_list[0]["location"]
+            if not primary_loc:
+                global_unassigned.append(part)
+                continue
+            candidates = [primary_loc]
+            for alt in loc_list[0].get("alternatives", []):
+                if alt and alt not in candidates:
+                    candidates.append(alt)
+            placed = False
+            for loc in candidates:
+                if global_vm.can_add(loc):
+                    global_vm.add(loc)
+                    global_slot_mapping[loc] = part
+                    global_part_mapping[part] = loc
+                    placed = True
+                    break
+                else:
+                    fallback = global_vm.find_fallback(loc)
+                    if fallback:
+                        global_vm.add(fallback)
+                        global_slot_mapping[fallback] = part
+                        global_part_mapping[part] = fallback
                         placed = True
                         break
-                    else:
-                        fallback = vm.find_fallback(loc)
-                        if fallback:
-                            vm.add(fallback)
-                            slot_mapping[fallback] = part
-                            part_mapping[part] = fallback
-                            placed = True
-                            break
-                            
-                if not placed:
-                    unassigned_parts.append(part)
-                    
-        groups.append(GroupResult(
-            group_name=f"Group {i + 1}",
-            pcbs=group_pcbs,
-            slot_mapping=slot_mapping,
-            part_mapping=part_mapping,
-            unassigned_parts=unassigned_parts
-        ))
+            if not placed:
+                global_unassigned.append(part)
+    
+    for i, raw_group in enumerate(raw_groups):
+        label = f"Group {i + 1}"
+        sub_results = _process_and_split_group(raw_group, label, models, master, global_vm, global_slot_mapping, global_part_mapping, global_unassigned, line_type)
+        groups.extend(sub_results)
         
         percent = 60 + int((i + 1) / max(1, total_groups) * 35)
         _emit_progress(progress_callback, percent, f"Setup Group {i + 1} selesai...")
@@ -379,12 +701,21 @@ def export_all_table_groups(groups, output_path):
     
     ws_summary = wb.active
     ws_summary.title = "Summary"
-    ws_summary.append(["Group Name", "PCB Name", "Total PCBs in Group", "Total Fixed Slots", "Total Skipped Components"])
+    ws_summary.append(["Group Name", "PCB Name", "Total PCBs in Group", "Total Fixed Slots", "Total Substitute Components", "Total Skipped Components"])
     
+    link_font = Font(name="Calibri", size=11, color="0002D9", underline="single")
+
     for g in groups:
         for p in g.pcbs:
-            row = [g.group_name, p.part_number, len(g.pcbs), len(g.slot_mapping), len(g.unassigned_parts)]
+            total_subs = sum(len(subs) for subs in g.substitute_mapping.values())
+            row = [g.group_name, p.part_number, len(g.pcbs), len(g.slot_mapping), total_subs, len(g.unassigned_parts)]
             ws_summary.append(row)
+            summary_row_idx = ws_summary.max_row
+            
+            # Make Group Name clickable hyperlink to its worksheet
+            cell_group = ws_summary.cell(row=summary_row_idx, column=1)
+            cell_group.hyperlink = f"#'{g.group_name}'!A1"
+            cell_group.font = link_font
         
     # Calculate base components used in ALL groups
     group_parts = []
@@ -460,7 +791,6 @@ def export_all_table_groups(groups, output_path):
         col_letter = col[0].column_letter
         for cell in col:
             val_str = str(cell.value or "")
-            # Skip checking the title row since it's long and would stretch column A too much
             if cell.row == title_row_idx:
                 continue
             if len(val_str) > max_len:
@@ -469,7 +799,27 @@ def export_all_table_groups(groups, output_path):
         
     for g in groups:
         ws = wb.create_sheet(title=g.group_name)
-        ws.append(["Table", "Slot", "Position", "Location Code", "Part Number"])
+
+        # Row 1: Return to Summary Hyperlink Button
+        cell_back = ws.cell(row=1, column=1, value="[ 🔙 Kembali ke Summary ]")
+        cell_back.hyperlink = "#'Summary'!A1"
+        cell_back.font = Font(name="Calibri", size=11, bold=True, color="0002D9", underline="single")
+
+        # Row 2: Headers
+        ws.cell(row=2, column=1, value="Table")
+        ws.cell(row=2, column=2, value="Slot")
+        ws.cell(row=2, column=3, value="Position")
+        ws.cell(row=2, column=4, value="Location Code")
+        ws.cell(row=2, column=5, value="Part Number")
+        ws.cell(row=2, column=6, value="Type")
+        ws.cell(row=2, column=7, value="Active When")
+
+        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+        for col_idx in range(1, 8):
+            c = ws.cell(row=2, column=col_idx)
+            c.font = header_font
+            c.fill = header_fill
         
         records = []
         for loc, part in g.slot_mapping.items():
@@ -478,37 +828,48 @@ def export_all_table_groups(groups, output_path):
                 table = int(match.group(1))
                 slot = int(match.group(2))
                 pos = str(match.group(3) or "").upper()
-                records.append({
-                    "table": table,
-                    "slot": slot,
-                    "pos": pos,
-                    "loc": loc,
-                    "part": part
-                })
             else:
-                records.append({
-                    "table": 99,
-                    "slot": 99,
-                    "pos": "",
-                    "loc": loc,
-                    "part": part
-                })
+                table = 99
+                slot = 99
+                pos = ""
+            records.append({
+                "table": table,
+                "slot": slot,
+                "pos": pos,
+                "loc": loc,
+                "part": part,
+                "type": "FIXED",
+                "active_when": ""
+            })
+            if loc in g.substitute_mapping:
+                for sub_part, sub_pcbs in g.substitute_mapping[loc]:
+                    records.append({
+                        "table": table,
+                        "slot": slot,
+                        "pos": pos,
+                        "loc": loc,
+                        "part": sub_part,
+                        "type": "SUBSTITUTE",
+                        "active_when": ", ".join(sub_pcbs)
+                    })
                 
-        records.sort(key=lambda x: (x["table"], x["slot"], x["pos"], natural_sort_key(x["loc"])))
+        records.sort(key=lambda x: (x["table"], x["slot"], x["pos"], natural_sort_key(x["loc"]), x["type"] != "FIXED"))
         
         for r in records:
-            ws.append([r["table"], r["slot"], r["pos"], r["loc"], r["part"]])
+            ws.append([r["table"], r["slot"], r["pos"], r["loc"], r["part"], r["type"], r["active_when"]])
             
-        # Write skipped parts at the bottom
+        # Write truly unresolvable skipped parts at the bottom
         if g.unassigned_parts:
             ws.append([])
-            ws.append(["SKIPPED / DYNAMIC COMPONENTS (Not enough slots or not in master):"])
+            ws.append(["SKIPPED / TRULY UNRESOLVABLE COMPONENTS:"])
             ws.append(["Part Number"])
             for p in g.unassigned_parts:
                 ws.append([p])
             
         ws.column_dimensions['D'].width = 15
         ws.column_dimensions['E'].width = 25
+        ws.column_dimensions['F'].width = 14
+        ws.column_dimensions['G'].width = 35
         
     wb.save(output_path)
     return output_path
