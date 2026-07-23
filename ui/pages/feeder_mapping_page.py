@@ -3,7 +3,10 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QComboBox,
+    QDialog,
     QFileDialog,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -12,16 +15,83 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QRadioButton,
+    QSpinBox,
     QTableView,
     QVBoxLayout,
 )
 
 from models.table_model import ColumnSpec, RecordTableModel
-from services import feeder_mapping_service
+from services import feeder_mapping_service, npm_txt_editor_service
 from ui.pages.base import WorkerPage
 from widgets.card import Card
 from widgets.file_picker import FilePicker
 from widgets.table_tools import configure_table, install_copy_menu
+
+
+class NpmTxtSlotEditDialog(QDialog):
+    def __init__(self, parent=None, table=1, slot=1, pos="", part_number="", feeder_id=""):
+        super().__init__(parent)
+        self.setWindowTitle("Edit / Tambah Slot Feeder NPM")
+        self.setMinimumWidth(420)
+
+        layout = QVBoxLayout(self)
+        form_layout = QFormLayout()
+
+        self.table_combo = QComboBox()
+        for t in range(1, 11):
+            self.table_combo.addItem(f"Table {t}", t)
+        self.table_combo.setCurrentIndex(max(0, table - 1))
+
+        self.slot_spin = QSpinBox()
+        self.slot_spin.setRange(1, 30)
+        self.slot_spin.setValue(slot)
+
+        self.pos_combo = QComboBox()
+        self.pos_combo.addItem("L (Left Position)", "L")
+        self.pos_combo.addItem("R (Right Position)", "R")
+        self.pos_combo.addItem("Single / Full Slot (No L/R)", "")
+        p_upper = pos.strip().upper()
+        if p_upper == "L":
+            self.pos_combo.setCurrentIndex(0)
+        elif p_upper == "R":
+            self.pos_combo.setCurrentIndex(1)
+        else:
+            self.pos_combo.setCurrentIndex(2)
+
+        self.part_input = QLineEdit(part_number)
+        self.part_input.setPlaceholderText("Contoh: EAE32246001 / 0RJ1000")
+
+        self.feeder_input = QLineEdit(feeder_id)
+        self.feeder_input.setPlaceholderText("Feeder ID (opsional, kosongkan untuk auto-infer)")
+
+        form_layout.addRow("Table:", self.table_combo)
+        form_layout.addRow("Slot Number:", self.slot_spin)
+        form_layout.addRow("Position (L/R/Single):", self.pos_combo)
+        form_layout.addRow("Part Number:", self.part_input)
+        form_layout.addRow("Feeder ID:", self.feeder_input)
+
+        layout.addLayout(form_layout)
+
+        btn_box = QHBoxLayout()
+        ok_btn = QPushButton("Simpan Slot")
+        ok_btn.setObjectName("PrimaryButton")
+        ok_btn.clicked.connect(self.accept)
+        cancel_btn = QPushButton("Batal")
+        cancel_btn.clicked.connect(self.reject)
+        btn_box.addStretch(1)
+        btn_box.addWidget(ok_btn)
+        btn_box.addWidget(cancel_btn)
+
+        layout.addLayout(btn_box)
+
+    def get_data(self):
+        return {
+            "table": self.table_combo.currentData(),
+            "slot": self.slot_spin.value(),
+            "pos": self.pos_combo.currentData(),
+            "part_number": self.part_input.text().strip().upper(),
+            "feeder_id": self.feeder_input.text().strip(),
+        }
 
 
 class FeederMappingPage(WorkerPage):
@@ -30,6 +100,8 @@ class FeederMappingPage(WorkerPage):
         self.mapping_result = None
         self.source_path = ""
         self.multi_source_paths = []
+        self.npm_doc = None
+        self.npm_doc_slots = []
         self._build_ui()
         self.theme_manager.changed.connect(self.apply_theme_to_models)
 
@@ -62,6 +134,8 @@ class FeederMappingPage(WorkerPage):
         self.cm602_program_cm_txt_mode_radio = QRadioButton("CM602 Program File Converter to CM.txt")
         self.cm602_feeder_fix_mode_radio = QRadioButton("Excel to CM602 FeederFix TXT")
         self.import_mode_radio = QRadioButton("Excel to NPM Feeder TXT")
+        self.group_import_mode_radio = QRadioButton("Fix Feeder Group to NPM TXT")
+        self.npm_editor_mode_radio = QRadioButton("Edit NPM Feeder TXT")
         self.single_mode_radio.setChecked(True)
         self.mode_group = QButtonGroup(self)
         self.mode_group.addButton(self.single_mode_radio)
@@ -70,18 +144,24 @@ class FeederMappingPage(WorkerPage):
         self.mode_group.addButton(self.cm602_program_cm_txt_mode_radio)
         self.mode_group.addButton(self.cm602_feeder_fix_mode_radio)
         self.mode_group.addButton(self.import_mode_radio)
+        self.mode_group.addButton(self.group_import_mode_radio)
+        self.mode_group.addButton(self.npm_editor_mode_radio)
         self.single_mode_radio.toggled.connect(self._sync_mode_ui)
         self.multiple_mode_radio.toggled.connect(self._sync_mode_ui)
         self.cm602_mode_radio.toggled.connect(self._sync_mode_ui)
         self.cm602_program_cm_txt_mode_radio.toggled.connect(self._sync_mode_ui)
         self.cm602_feeder_fix_mode_radio.toggled.connect(self._sync_mode_ui)
         self.import_mode_radio.toggled.connect(self._sync_mode_ui)
+        self.group_import_mode_radio.toggled.connect(self._sync_mode_ui)
+        self.npm_editor_mode_radio.toggled.connect(self._sync_mode_ui)
         mode_row.addWidget(self.single_mode_radio)
         mode_row.addWidget(self.multiple_mode_radio)
         mode_row.addWidget(self.cm602_mode_radio)
         mode_row.addWidget(self.cm602_program_cm_txt_mode_radio)
         mode_row.addWidget(self.cm602_feeder_fix_mode_radio)
         mode_row.addWidget(self.import_mode_radio)
+        mode_row.addWidget(self.group_import_mode_radio)
+        mode_row.addWidget(self.npm_editor_mode_radio)
         mode_row.addStretch(1)
         mode_card.layout.addLayout(mode_row)
         root.addWidget(mode_card)
@@ -117,8 +197,25 @@ class FeederMappingPage(WorkerPage):
         self.clear_btn = QPushButton("Clear")
         self.clear_btn.setObjectName("DangerButton")
         self.clear_btn.clicked.connect(self.clear_data)
+
+        self.editor_add_btn = QPushButton("➕ Tambah Slot Feeder Baru")
+        self.editor_add_btn.setObjectName("PrimaryButton")
+        self.editor_add_btn.clicked.connect(self.editor_add_slot)
+        self.editor_edit_btn = QPushButton("✏️ Edit Slot Terpilih")
+        self.editor_edit_btn.clicked.connect(self.editor_edit_slot)
+        self.editor_delete_btn = QPushButton("🗑️ Hapus Slot Terpilih")
+        self.editor_delete_btn.setObjectName("DangerButton")
+        self.editor_delete_btn.clicked.connect(self.editor_delete_slot)
+        self.editor_save_btn = QPushButton("💾 Simpan / Export File NPM TXT")
+        self.editor_save_btn.setObjectName("SuccessButton")
+        self.editor_save_btn.clicked.connect(self.editor_save_file)
+
         action_bar.addWidget(self.preview_btn)
         action_bar.addWidget(self.generate_btn)
+        action_bar.addWidget(self.editor_add_btn)
+        action_bar.addWidget(self.editor_edit_btn)
+        action_bar.addWidget(self.editor_delete_btn)
+        action_bar.addWidget(self.editor_save_btn)
         action_bar.addStretch(1)
         action_bar.addWidget(self.clear_btn)
         root.addLayout(action_bar)
@@ -164,6 +261,10 @@ class FeederMappingPage(WorkerPage):
             self.preview_btn,
             self.generate_btn,
             self.clear_btn,
+            self.editor_add_btn,
+            self.editor_edit_btn,
+            self.editor_delete_btn,
+            self.editor_save_btn,
             self.preview_search_input,
             self.source_picker.button,
             self.reference_picker.button,
@@ -174,9 +275,14 @@ class FeederMappingPage(WorkerPage):
             self.cm602_program_cm_txt_mode_radio,
             self.cm602_feeder_fix_mode_radio,
             self.import_mode_radio,
+            self.group_import_mode_radio,
+            self.npm_editor_mode_radio,
         )
 
         self._sync_mode_ui()
+
+    def _is_npm_editor_mode(self):
+        return self.npm_editor_mode_radio.isChecked()
 
     def set_busy(self, busy, text=None):
         super().set_busy(busy, text)
@@ -187,7 +293,7 @@ class FeederMappingPage(WorkerPage):
         if self._is_multiple_mode():
             self.browse_multiple_sources()
             return
-        if self._is_import_mode():
+        if self._is_import_mode() or self._is_group_import_mode():
             self.browse_mapping_excel()
             return
         if self._is_cm602_feeder_fix_mode():
@@ -313,7 +419,7 @@ class FeederMappingPage(WorkerPage):
             self._update_mode_actions()
 
     def preview_mapping(self):
-        if self._is_multiple_mode() or self._is_import_mode() or self._is_cm602_program_cm_txt_mode() or self._is_cm602_feeder_fix_mode():
+        if self._is_multiple_mode() or self._is_import_mode() or self._is_group_import_mode() or self._is_cm602_program_cm_txt_mode() or self._is_cm602_feeder_fix_mode():
             QMessageBox.information(self, "Preview Mapping", "Preview table hanya tersedia untuk mode single feeder file.")
             return
 
@@ -353,6 +459,9 @@ class FeederMappingPage(WorkerPage):
         self._update_summary(len(filtered_records), len(records))
 
     def generate_excel(self):
+        if self._is_group_import_mode():
+            self.generate_npm_group_import_files()
+            return
         if self._is_import_mode():
             self.generate_npm_import_file()
             return
@@ -492,6 +601,45 @@ class FeederMappingPage(WorkerPage):
             "Converting feeder mapping to NPM TXT...",
         )
 
+    def generate_npm_group_import_files(self):
+        mapping_path = self.source_picker.path()
+        template_path = self.reference_picker.path()
+        if not mapping_path:
+            QMessageBox.warning(self, "Input belum lengkap", "File Fix Feeder Group Excel belum dipilih.")
+            return
+        if not template_path:
+            template_path = ""
+
+        output_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Pilih Folder Penyimpanan Output NPM TXT",
+            str(Path(mapping_path).parent),
+        )
+        if not output_dir:
+            return
+
+        self.run_worker(
+            lambda mapping=mapping_path, template=template_path, out=output_dir: feeder_mapping_service.generate_npm_feeder_import_batch_from_groups(mapping, template, out),
+            self._on_generate_npm_group_import_done,
+            "Converting Fix Feeder Groups to NPM TXT...",
+        )
+
+    def _on_generate_npm_group_import_done(self, result):
+        output_dir_name = Path(result.output_dir).name
+        self.status_label.setText(f"Saved: {result.total_groups} files in {output_dir_name}")
+        self.status_label.setToolTip(result.output_dir)
+        self.summary_label.setText(f"{result.total_groups} GROUPS | {result.total_groups} FILES")
+
+        QMessageBox.information(
+            self,
+            "Fix Feeder Group to NPM TXT",
+            (
+                f"Jumlah Fix Feeder Group di Excel: {result.total_groups}\n"
+                f"Jumlah file TXT berhasil dibuat: {result.successful_groups}\n\n"
+                f"Tersimpan di folder:\n{result.output_dir}"
+            ),
+        )
+
     def _on_generate_from_source_done(self, payload):
         result, output_path = payload
         self._on_mapping_loaded(result)
@@ -596,16 +744,259 @@ class FeederMappingPage(WorkerPage):
         self.status_label.setToolTip(output_path)
         QMessageBox.information(self, "Generate Feeder Mapping", f"Exported to:\n{output_path}")
 
+    def browse_source(self):
+        if self._is_npm_editor_mode():
+            self.browse_npm_editor_source()
+            return
+        if self._is_multiple_mode():
+            self.browse_multiple_sources()
+            return
+        if self._is_import_mode() or self._is_group_import_mode():
+            self.browse_mapping_excel()
+            return
+        if self._is_cm602_feeder_fix_mode():
+            self.browse_mapping_excel()
+            return
+        if self._is_cm602_program_cm_txt_mode():
+            self.browse_cm602_program_source()
+            return
+        if self._is_cm602_mode():
+            self.browse_cm602_source()
+            return
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select NPM Machine Export",
+            "",
+            "NPM Export (*.txt *.TXT *.crb *.CRB);;Text/CRB Files (*.txt *.TXT *.crb *.CRB);;All Files (*)",
+        )
+        if file_path:
+            self.source_picker.set_path(file_path)
+            self.source_path = file_path
+            self.multi_source_paths = []
+            self.mapping_result = None
+            self.preview_search_input.clear()
+            self.mapping_model.set_records([])
+            self.summary_label.setText("0 ROWS")
+            self.status_label.setText("Source selected")
+            self._update_mode_actions()
+
+    def browse_npm_editor_source(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select NPM Feeder TXT File",
+            "",
+            "NPM TXT Files (*.txt *.TXT);;All Files (*)",
+        )
+        if file_path:
+            self.source_picker.set_path(file_path)
+            self.source_path = file_path
+            self.multi_source_paths = []
+            try:
+                self.npm_doc = npm_txt_editor_service.load_npm_txt(file_path)
+                self._reload_npm_editor_table()
+                self.status_label.setText("File TXT berhasil dimuat ke Editor")
+            except Exception as e:
+                QMessageBox.critical(self, "Error Load TXT", f"Gagal membaca file NPM TXT:\n{e}")
+            self._update_mode_actions()
+
+    def _reload_npm_editor_table(self):
+        if not self.npm_doc:
+            self.mapping_model.set_records([])
+            self.summary_label.setText("0 SLOTS")
+            return
+        slots = self.npm_doc.get_slots()
+        self.npm_doc_slots = slots
+        records = []
+        for s in slots:
+            loc = s["location_code"]
+            table_val = ""
+            slot_val = ""
+            pos_val = ""
+            m = re.match(r'^\[(\d+)\](\d+)(?:-(\d+))?([LRlr])?$', loc)
+            if m:
+                table_val = int(m.group(1))
+                slot_val = int(m.group(2))
+                pos_val = m.group(4).upper() if m.group(4) else "Single"
+            records.append({
+                "table": table_val,
+                "slot": slot_val,
+                "position": pos_val,
+                "location_code": loc,
+                "part_number": s["part_number"],
+                "feeder_id": s["feeder_id"],
+                "pu_code": s["pu_code"],
+            })
+        self.mapping_model.set_records(records)
+        self.summary_label.setText(f"{len(records)} SLOTS")
+
+    def editor_add_slot(self):
+        if not self.npm_doc:
+            QMessageBox.warning(self, "Peringatan", "Silakan pilih file NPM Feeder TXT terlebih dahulu.")
+            return
+        dlg = NpmTxtSlotEditDialog(self)
+        if dlg.exec() == QDialog.Accepted:
+            data = dlg.get_data()
+            if not data["part_number"]:
+                QMessageBox.warning(self, "Peringatan", "Part Number tidak boleh kosong.")
+                return
+            self.npm_doc.add_slot(
+                table=data["table"],
+                slot=data["slot"],
+                pos=data["pos"],
+                part_number=data["part_number"],
+                feeder_id=data["feeder_id"],
+            )
+            self._reload_npm_editor_table()
+            self.status_label.setText(f"Slot [{data['table']}]{data['slot']:02d}{data['pos']} berhasil ditambahkan/diupdate.")
+            self._update_mode_actions()
+
+    def editor_edit_slot(self):
+        if not self.npm_doc:
+            QMessageBox.warning(self, "Peringatan", "Silakan pilih file NPM Feeder TXT terlebih dahulu.")
+            return
+        selected_indexes = self.mapping_table.selectionModel().selectedRows()
+        if not selected_indexes:
+            QMessageBox.warning(self, "Peringatan", "Pilih slot feeder yang ingin diedit dari tabel terlebih dahulu.")
+            return
+        row_idx = selected_indexes[0].row()
+        records = self.mapping_model.records
+        if row_idx < 0 or row_idx >= len(records):
+            return
+        rec = records[row_idx]
+        table_val = rec.get("table", 1) or 1
+        slot_val = rec.get("slot", 1) or 1
+        pos_val = rec.get("position", "")
+        if pos_val == "Single":
+            pos_val = ""
+        part_number = rec.get("part_number", "")
+        feeder_id = rec.get("feeder_id", "")
+
+        dlg = NpmTxtSlotEditDialog(
+            self,
+            table=table_val,
+            slot=slot_val,
+            pos=pos_val,
+            part_number=part_number,
+            feeder_id=feeder_id,
+        )
+        if dlg.exec() == QDialog.Accepted:
+            data = dlg.get_data()
+            if not data["part_number"]:
+                QMessageBox.warning(self, "Peringatan", "Part Number tidak boleh kosong.")
+                return
+            self.npm_doc.add_slot(
+                table=data["table"],
+                slot=data["slot"],
+                pos=data["pos"],
+                part_number=data["part_number"],
+                feeder_id=data["feeder_id"],
+            )
+            self._reload_npm_editor_table()
+            self.status_label.setText(f"Slot [{data['table']}]{data['slot']:02d}{data['pos']} berhasil diperbarui.")
+            self._update_mode_actions()
+
+    def editor_delete_slot(self):
+        if not self.npm_doc:
+            QMessageBox.warning(self, "Peringatan", "Silakan pilih file NPM Feeder TXT terlebih dahulu.")
+            return
+        selected_indexes = self.mapping_table.selectionModel().selectedRows()
+        if not selected_indexes:
+            QMessageBox.warning(self, "Peringatan", "Pilih slot feeder yang ingin dihapus dari tabel terlebih dahulu.")
+            return
+        row_idx = selected_indexes[0].row()
+        records = self.mapping_model.records
+        if row_idx < 0 or row_idx >= len(records):
+            return
+        rec = records[row_idx]
+        pu_code = rec.get("pu_code")
+        loc_code = rec.get("location_code")
+        reply = QMessageBox.question(
+            self,
+            "Konfirmasi Hapus Slot",
+            f"Apakah Anda yakin ingin menghapus slot {loc_code} ({rec.get('part_number')})?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            self.npm_doc.delete_slot(pu_code)
+            self._reload_npm_editor_table()
+            self.status_label.setText(f"Slot {loc_code} berhasil dihapus.")
+            self._update_mode_actions()
+
+    def editor_save_file(self):
+        if not self.npm_doc:
+            QMessageBox.warning(self, "Peringatan", "Silakan pilih dan edit file NPM Feeder TXT terlebih dahulu.")
+            return
+        default_name = "EDITED_" + Path(self.source_path).name if self.source_path else "NPM_FEEDER_EDITED.txt"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Simpan / Export NPM Feeder TXT",
+            default_name,
+            "NPM TXT Files (*.txt *.TXT);;All Files (*)",
+        )
+        if file_path:
+            try:
+                npm_txt_editor_service.save_npm_txt(self.npm_doc, file_path)
+                QMessageBox.information(
+                    self,
+                    "Berhasil",
+                    f"File NPM Feeder TXT berhasil disimpan di:\n{file_path}",
+                )
+                self.status_label.setText("File berhasil disimpan")
+            except Exception as e:
+                QMessageBox.critical(self, "Error Simpan File", f"Gagal menyimpan file NPM TXT:\n{e}")
+
+    def browse_cm602_source(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select CM602 Feeder/Program File",
+            "",
+            "CM602/Text Files (*.txt *.TXT);;All Files (*)",
+        )
+        if file_path:
+            self.source_picker.set_path(file_path)
+            self.source_path = file_path
+            self.multi_source_paths = []
+            self.mapping_result = None
+            self.preview_search_input.clear()
+            self.mapping_model.set_records([])
+            self.summary_label.setText("0 ROWS")
+            self.status_label.setText("CM602 source selected")
+            self._update_mode_actions()
+
+    def browse_cm602_program_source(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select CM602 Program File",
+            "",
+            "CM602 Program Files (*);;Text Files (*.txt *.TXT)",
+        )
+        if file_path:
+            self.source_picker.set_path(file_path)
+            self.source_path = file_path
+            self.multi_source_paths = []
+            self.mapping_result = None
+            self.preview_search_input.clear()
+            self.mapping_model.set_records([])
+            self.summary_label.setText("Source selected")
+            self.status_label.setText("CM602 program selected")
+            self._update_mode_actions()
+
     def clear_data(self):
         self.mapping_result = None
         self.source_path = ""
         self.multi_source_paths = []
+        self.npm_doc = None
+        self.npm_doc_slots = []
         self.source_picker.clear()
         self.reference_picker.clear()
         self.balancing_input.setPlainText(feeder_mapping_service.default_balancing_part_numbers_text())
         self.preview_search_input.clear()
         self.mapping_model.set_records([])
-        if self._is_import_mode() or self._is_cm602_feeder_fix_mode():
+        if self._is_npm_editor_mode():
+            self.summary_label.setText("0 SLOTS")
+        elif self._is_import_mode() or self._is_cm602_feeder_fix_mode():
             self.summary_label.setText("0 PARTS")
         else:
             self.summary_label.setText("0 FILES" if self._is_multiple_mode() else "0 ROWS")
@@ -620,6 +1011,16 @@ class FeederMappingPage(WorkerPage):
         ).lower()
 
     def _update_summary(self, visible_count, total_count):
+        if self._is_npm_editor_mode():
+            if self.npm_doc is None:
+                self.summary_label.setText("0 SLOTS")
+                return
+            summary = f"{total_count} SLOTS"
+            if visible_count != total_count:
+                summary = f"{visible_count}/{summary}"
+            self.summary_label.setText(summary)
+            return
+
         if self.mapping_result is None:
             self.summary_label.setText("0 ROWS")
             return
@@ -644,13 +1045,30 @@ class FeederMappingPage(WorkerPage):
     def _is_import_mode(self):
         return self.import_mode_radio.isChecked()
 
+    def _is_group_import_mode(self):
+        return self.group_import_mode_radio.isChecked()
+
+    def _is_npm_editor_mode(self):
+        return self.npm_editor_mode_radio.isChecked()
+
     def _sync_mode_ui(self):
         is_multiple = self._is_multiple_mode()
         is_cm602 = self._is_cm602_mode()
         is_cm602_program_cm_txt = self._is_cm602_program_cm_txt_mode()
         is_cm602_feeder_fix = self._is_cm602_feeder_fix_mode()
         is_import = self._is_import_mode()
-        if is_import:
+        is_group_import = self._is_group_import_mode()
+        is_npm_editor = self._is_npm_editor_mode()
+
+        if is_npm_editor:
+            self.source_picker.label.setText("NPM Feeder TXT File (.txt):")
+            self.source_picker.button.setText("Browse")
+        elif is_group_import:
+            self.source_picker.label.setText("Fix Feeder Group Excel (.xlsx):")
+            self.reference_picker.label.setText("NPM Program Template (Optional, kosongkan untuk auto):")
+            self.source_picker.button.setText("Browse")
+            self.reference_picker.button.setText("Browse")
+        elif is_import:
             self.source_picker.label.setText("Feeder Mapping Excel (.xlsx):")
             self.reference_picker.label.setText("NPM Program Template (Optional, kosongkan untuk auto):")
             self.source_picker.button.setText("Browse")
@@ -667,18 +1085,22 @@ class FeederMappingPage(WorkerPage):
         else:
             self.source_picker.label.setText("NPM/CM602 Feeder Files:" if is_multiple else "NPM Machine Export (.txt/.crb):")
             self.source_picker.button.setText("Browse Files" if is_multiple else "Browse")
-        self.reference_picker.setVisible(is_import)
+        self.reference_picker.setVisible(is_import or is_group_import)
         self.balancing_label.setVisible(False)
         self.balancing_input.setVisible(False)
         self.mapping_result = None
+        self.npm_doc = None
+        self.npm_doc_slots = []
         self.source_path = ""
         self.multi_source_paths = []
         self.source_picker.clear()
         self.reference_picker.clear()
         self.preview_search_input.clear()
         self.mapping_model.set_records([])
-        if is_import or is_cm602_feeder_fix:
-            self.summary_label.setText("0 PARTS")
+        if is_npm_editor:
+            self.summary_label.setText("0 SLOTS")
+        elif is_import or is_group_import or is_cm602_feeder_fix:
+            self.summary_label.setText("0 GROUPS" if is_group_import else "0 PARTS")
         else:
             self.summary_label.setText("0 FILES" if is_multiple else "0 ROWS")
         self.status_label.setText("")
@@ -688,22 +1110,43 @@ class FeederMappingPage(WorkerPage):
     def _update_mode_actions(self):
         is_multiple = self._is_multiple_mode()
         is_import = self._is_import_mode()
+        is_group_import = self._is_group_import_mode()
         is_cm602_program_cm_txt = self._is_cm602_program_cm_txt_mode()
         is_cm602_feeder_fix = self._is_cm602_feeder_fix_mode()
-        self.preview_btn.setEnabled(not is_multiple and not is_import and not is_cm602_program_cm_txt and not is_cm602_feeder_fix)
-        self.preview_search_input.setEnabled(not is_multiple and not is_import and not is_cm602_program_cm_txt and not is_cm602_feeder_fix)
-        if is_import:
-            self.generate_btn.setText("Generate Feeder TXT")
-            self.generate_btn.setEnabled(bool(self.source_picker.path()))
-        elif is_cm602_program_cm_txt:
-            self.generate_btn.setText("Generate CM.txt")
-            self.generate_btn.setEnabled(bool(self.source_picker.path()))
-        elif is_cm602_feeder_fix:
-            self.generate_btn.setText("Generate FeederFix TXT")
-            self.generate_btn.setEnabled(bool(self.source_picker.path()))
+        is_npm_editor = self._is_npm_editor_mode()
+
+        self.preview_btn.setVisible(not is_npm_editor)
+        self.generate_btn.setVisible(not is_npm_editor)
+        self.editor_add_btn.setVisible(is_npm_editor)
+        self.editor_edit_btn.setVisible(is_npm_editor)
+        self.editor_delete_btn.setVisible(is_npm_editor)
+        self.editor_save_btn.setVisible(is_npm_editor)
+
+        if is_npm_editor:
+            has_doc = bool(self.npm_doc)
+            self.editor_add_btn.setEnabled(has_doc)
+            self.editor_edit_btn.setEnabled(has_doc)
+            self.editor_delete_btn.setEnabled(has_doc)
+            self.editor_save_btn.setEnabled(has_doc)
+            self.preview_search_input.setEnabled(has_doc)
         else:
-            self.generate_btn.setText("Generate Workbook" if is_multiple else "Generate Excel")
-            self.generate_btn.setEnabled(bool(self.multi_source_paths) if is_multiple else bool(self.source_picker.path()))
+            self.preview_btn.setEnabled(not is_multiple and not is_import and not is_group_import and not is_cm602_program_cm_txt and not is_cm602_feeder_fix)
+            self.preview_search_input.setEnabled(not is_multiple and not is_import and not is_group_import and not is_cm602_program_cm_txt and not is_cm602_feeder_fix)
+            if is_group_import:
+                self.generate_btn.setText("Generate Group NPM TXTs")
+                self.generate_btn.setEnabled(bool(self.source_picker.path()))
+            elif is_import:
+                self.generate_btn.setText("Generate Feeder TXT")
+                self.generate_btn.setEnabled(bool(self.source_picker.path()))
+            elif is_cm602_program_cm_txt:
+                self.generate_btn.setText("Generate CM.txt")
+                self.generate_btn.setEnabled(bool(self.source_picker.path()))
+            elif is_cm602_feeder_fix:
+                self.generate_btn.setText("Generate FeederFix TXT")
+                self.generate_btn.setEnabled(bool(self.source_picker.path()))
+            else:
+                self.generate_btn.setText("Generate Workbook" if is_multiple else "Generate Excel")
+                self.generate_btn.setEnabled(bool(self.multi_source_paths) if is_multiple else bool(self.source_picker.path()))
 
     def _multi_source_display_text(self, file_paths):
         file_names = [Path(path).name for path in file_paths]

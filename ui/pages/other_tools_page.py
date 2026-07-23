@@ -14,6 +14,7 @@ from ui.pages.insert_point_page import InsertPointPage
 from ui.pages.model_feeder_group_page import ModelFeederGroupPage
 from ui.pages.table7_feeder_page import Table7FeederPage
 from ui.pages.all_table_feeder_group_page import AllTableFeederGroupPage
+from ui.pages.pcb_group_matcher_page import PcbGroupMatcherPage
 from ui.pages.new_pcb_excel_page import NewPcbExcelPage
 from ui.pages.feeder_compare_page import FeederComparePage
 from ui.pages.used_part_component_page import UsedPartComponentPage
@@ -55,6 +56,7 @@ class OtherToolsPage(QWidget):
         self.stack.addWidget(self._build_all_table_feeder_group_page())
         self.stack.addWidget(self._build_crb_program_collector_page())
         self.stack.addWidget(self._build_feeder_balancer_page())
+        self.stack.addWidget(self._build_pcb_group_matcher_page())
         root.addWidget(self.stack, 1)
         self._refresh_icons()
 
@@ -201,6 +203,13 @@ class OtherToolsPage(QWidget):
                 "Cari dan copy program .crb by PCB/line",
                 "feeder_mapping",
                 self.open_crb_program_collector,
+            ),
+            (
+                "pcb_group_matcher_button",
+                "PCB Group Matcher",
+                "Cari Fix Feeder Group terbaik untuk PCB baru",
+                "group",
+                self.open_pcb_group_matcher,
             ),
         ]
         for index, (attr_name, title, subtitle, icon_name, callback) in enumerate(tools):
@@ -555,6 +564,26 @@ class OtherToolsPage(QWidget):
         layout.addWidget(self.feeder_balancer_page, 1)
         return page
 
+    def _build_pcb_group_matcher_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+
+        top = QHBoxLayout()
+        self.back_pcb_group_matcher_button = QPushButton("Back to Tools")
+        self.back_pcb_group_matcher_button.clicked.connect(self.open_menu)
+        title = QLabel("PCB Group Matcher")
+        title.setObjectName("TitleLabel")
+        top.addWidget(self.back_pcb_group_matcher_button)
+        top.addWidget(title)
+        top.addStretch(1)
+        layout.addLayout(top)
+
+        self.pcb_group_matcher_page = PcbGroupMatcherPage(self.thread_pool, self.theme_manager)
+        layout.addWidget(self.pcb_group_matcher_page, 1)
+        return page
+
     def _create_tool_button(self, title, subtitle, icon_name, callback):
         button = QToolButton()
         button.setObjectName("ToolMenuButton")
@@ -613,6 +642,9 @@ class OtherToolsPage(QWidget):
     def open_feeder_balancer(self):
         self.stack.setCurrentIndex(17)
 
+    def open_pcb_group_matcher(self):
+        self.stack.setCurrentIndex(18)
+
     def open_worksheet_bom(self):
         self.stack.setCurrentIndex(2)
 
@@ -660,3 +692,5 @@ class OtherToolsPage(QWidget):
             self.back_crb_program_collector_button.setIcon(make_icon("arrow_left", theme["text"]))
         if hasattr(self, "back_feeder_balancer_button"):
             self.back_feeder_balancer_button.setIcon(make_icon("arrow_left", theme["text"]))
+        if hasattr(self, "back_pcb_group_matcher_button"):
+            self.back_pcb_group_matcher_button.setIcon(make_icon("arrow_left", theme["text"]))

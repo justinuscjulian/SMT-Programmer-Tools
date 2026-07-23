@@ -150,6 +150,16 @@ class NpmFeederImportResult:
 
 
 @dataclass
+class NpmFeederImportBatchResult:
+    output_dir: str
+    mapping_file: str
+    group_results: list
+    total_groups: int
+    successful_groups: int
+
+
+
+@dataclass
 class Cm602ProgramCmTxtResult:
     output_path: str
     source_file: str
@@ -420,6 +430,117 @@ def generate_npm_feeder_import_file(mapping_path, template_path, output_path):
 
     mapping_records, duplicate_rows = _load_import_mapping_workbook(mapping_file)
 
+    return _generate_npm_import_from_records(
+        mapping_records=mapping_records,
+        duplicate_rows=duplicate_rows,
+        mapping_file_name=mapping_file.name,
+        template_path=template_path,
+        output_path=output,
+    )
+
+
+def generate_npm_feeder_import_batch_from_groups(mapping_path, template_path, output_dir_path):
+    mapping_file = Path(_clean_path(mapping_path))
+    if not mapping_file.is_file():
+        raise ServiceError(f"File Excel feeder mapping tidak ditemukan:\n{mapping_file}", title="File tidak ditemukan")
+    if mapping_file.suffix.lower() not in {".xlsx", ".xlsm"}:
+        raise ServiceError("Input feeder mapping harus file Excel .xlsx/.xlsm.", title="Format tidak valid")
+
+    if template_path:
+        template = Path(_clean_path(template_path))
+        if not template.is_file():
+            raise ServiceError(f"Template program NPM tidak ditemukan:\n{template}", title="File tidak ditemukan")
+        if template.suffix.lower() not in {".txt", ".crb"}:
+            raise ServiceError("Template NPM harus file .txt atau .crb.", title="Format tidak valid")
+
+    output_dir = Path(output_dir_path)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        workbook = load_workbook(mapping_file, data_only=True, read_only=True)
+    except Exception as exc:
+        raise ServiceError("File Excel feeder mapping tidak bisa dibaca.", title="Excel tidak valid") from exc
+
+    # Parse Summary sheet to get PCB names mapping for each group
+    group_pcbs = defaultdict(list)
+    if "Summary" in workbook.sheetnames:
+        ws_sum = workbook["Summary"]
+        header = None
+        group_idx = -1
+        pcb_idx = -1
+        for row in ws_sum.iter_rows(values_only=True):
+            vals = [_clean_excel_cell(c) for c in row]
+            if not any(vals):
+                continue
+            if header is None:
+                header_upper = [v.upper() for v in vals]
+                if "GROUP NAME" in header_upper and "PCB NAME" in header_upper:
+                    header = header_upper
+                    group_idx = header_upper.index("GROUP NAME")
+                    pcb_idx = header_upper.index("PCB NAME")
+            else:
+                if group_idx >= 0 and pcb_idx >= 0 and len(vals) > max(group_idx, pcb_idx):
+                    g_name = vals[group_idx]
+                    p_name = vals[pcb_idx]
+                    if g_name and p_name:
+                        if p_name not in group_pcbs[g_name]:
+                            group_pcbs[g_name].append(p_name)
+
+    group_results = []
+
+    for worksheet in workbook.worksheets:
+        if worksheet.title.lower() in {"summary", "summary sheet"}:
+            continue
+
+        records, duplicates = _read_import_mapping_sheet(worksheet)
+        if not records:
+            continue
+
+        sheet_title = worksheet.title
+        pcbs = group_pcbs.get(sheet_title, [])
+        if pcbs:
+            raw_filename = ", ".join(pcbs)
+        else:
+            raw_filename = sheet_title
+
+        clean_filename = re.sub(r'[\\/*?:"<>|]', '_', raw_filename).strip()
+        if not clean_filename:
+            clean_filename = sheet_title
+
+        out_txt_path = output_dir / f"{clean_filename}.txt"
+
+        res = _generate_npm_import_from_records(
+            mapping_records=records,
+            duplicate_rows=duplicates,
+            mapping_file_name=mapping_file.name,
+            template_path=template_path,
+            output_path=out_txt_path,
+        )
+        group_results.append(res)
+
+    workbook.close()
+
+    if not group_results:
+        raise ServiceError(
+            "Tidak ditemukan sheet group fix feeder yang memiliki data slot dan part number valid.",
+            title="Data tidak ditemukan",
+        )
+
+    return NpmFeederImportBatchResult(
+        output_dir=str(output_dir),
+        mapping_file=mapping_file.name,
+        group_results=group_results,
+        total_groups=len(group_results),
+        successful_groups=len(group_results),
+    )
+
+
+def _generate_npm_import_from_records(mapping_records, duplicate_rows, mapping_file_name, template_path, output_path):
+    output = Path(output_path)
+    if output.suffix.lower() != ".txt":
+        output = output.with_suffix(".txt")
+    output.parent.mkdir(parents=True, exist_ok=True)
+
     if not template_path:
         template = _select_auto_template(mapping_records)
     else:
@@ -433,7 +554,7 @@ def generate_npm_feeder_import_file(mapping_path, template_path, output_path):
     part_lookup_by_id = _build_lookup(part_rows, "IDNUM")
     feeder_lookup = _build_lookup(_read_section_rows(template_lines, "FeederData"), "IDNUM")
     template_assignments = _existing_fixed_assignments(fixed_rows, part_lookup_by_id, feeder_lookup)
-    
+
     is_auto = not bool(template_path)
     if is_auto:
         max_idnum = max([int(float(str(r.get("IDNUM", 0)))) for r in part_rows if str(r.get("IDNUM", "")).replace(".", "", 1).isdigit()], default=0)
@@ -532,7 +653,7 @@ def generate_npm_feeder_import_file(mapping_path, template_path, output_path):
 
     return NpmFeederImportResult(
         output_path=str(output),
-        mapping_file=mapping_file.name,
+        mapping_file=mapping_file_name,
         template_file=template.name,
         mapping_row_count=len(mapping_records),
         assigned_part_count=len(assigned_part_keys),
@@ -767,18 +888,52 @@ def _read_import_mapping_sheet(worksheet):
     records = []
     duplicates = []
     seen_exact_rows = set()
+    header_map = {}
     for row_number, row in enumerate(worksheet.iter_rows(values_only=True), start=1):
-        values = list(row[:2])
-        first = _clean_excel_cell(values[0] if len(values) > 0 else "")
-        second = _clean_excel_cell(values[1] if len(values) > 1 else "")
-        if not first and not second:
-            continue
-        if _looks_like_import_header(first, second):
+        raw_cells = [_clean_excel_cell(c) for c in row]
+        while raw_cells and not raw_cells[-1]:
+            raw_cells.pop()
+        if not any(raw_cells):
             continue
 
-        part_number, location_code = first, second
-        if _parse_import_location_code(first) and not _parse_import_location_code(second):
-            part_number, location_code = second, first
+        cells_upper = [c.upper() for c in raw_cells]
+        if "PART NUMBER" in cells_upper or "LOCATION CODE" in cells_upper or "LOCATION" in cells_upper:
+            for idx, c in enumerate(cells_upper):
+                if "PART NUMBER" in c or "PART" in c:
+                    header_map["part"] = idx
+                elif "LOCATION" in c or "SLOT" in c:
+                    header_map["loc"] = idx
+            continue
+
+        part_number = ""
+        location_code = ""
+
+        if "loc" in header_map and "part" in header_map:
+            if len(raw_cells) > max(header_map["loc"], header_map["part"]):
+                c_loc = raw_cells[header_map["loc"]]
+                c_part = raw_cells[header_map["part"]]
+                if _parse_import_location_code(c_loc):
+                    location_code = c_loc
+                    part_number = c_part
+
+        if not location_code or not part_number:
+            loc_idx = -1
+            for idx, c in enumerate(raw_cells):
+                if _parse_import_location_code(c):
+                    location_code = c
+                    loc_idx = idx
+                    break
+            if location_code and loc_idx >= 0:
+                for idx, c in enumerate(raw_cells):
+                    if (
+                        idx != loc_idx
+                        and c
+                        and c.upper() not in {"FIXED", "DYNAMIC", "L", "R", "LEFT", "RIGHT", "SKIPPED"}
+                        and not _parse_import_location_code(c)
+                    ):
+                        part_number = c
+                        if not c.isdigit():
+                            break
 
         parsed_location = _parse_import_location_code(location_code)
         if not part_number or not parsed_location:
@@ -845,19 +1000,30 @@ def _parse_import_location_code(location_code):
 def _select_auto_template(mapping_records):
     has_large_slot_table_1_4 = False
     has_table_8 = False
+    has_table_9_or_10 = False
+    has_table_7_large = False
+
     for record in mapping_records:
         table = record.get("table", 0)
         slot = record.get("slot", 0)
+        spans = record.get("spans_slots", 1)
+        uses_lr = record.get("uses_lr_position", False)
+
         if table in (1, 2, 3, 4) and slot > 17:
             has_large_slot_table_1_4 = True
         if table == 8:
             has_table_8 = True
+        if table in (9, 10):
+            has_table_9_or_10 = True
+        if table == 7 and (spans >= 2 or not uses_lr):
+            has_table_7_large = True
 
-    if has_large_slot_table_1_4:
-        if has_table_8:
-            template_name = "assets/npm_base_template_line67.txt"
-        else:
-            template_name = "assets/npm_base_template_line8.txt"
+    if has_table_7_large and not has_table_8 and not has_table_9_or_10:
+        template_name = "assets/npm_base_template_line8.txt"
+    elif has_table_8 or (has_large_slot_table_1_4 and has_table_9_or_10):
+        template_name = "assets/npm_base_template_line67.txt"
+    elif has_large_slot_table_1_4 and not has_table_8:
+        template_name = "assets/npm_base_template_line8.txt"
     else:
         template_name = "assets/npm_base_template.txt"
 
@@ -903,20 +1069,75 @@ def _feeder_id_for_import_location(part_key, part_row, feeder_lookup, uses_lr_po
             return feeder_id
     return ""
 
+KNOWN_LINE8_PART_FEEDERS = {
+    "6630V93270J": "306825",
+    "6630V93270K": "306825",
+    "6630VK19605": "304425",
+    "6212AB2015C": "304424",
+    "EBJ30065001": "302983",
+    "EBJ30065002": "302983",
+    "EBJ30065003": "302983",
+    "EBJ30065004": "302983",
+    "EAG61090215": "306025",
+    "EAG61090216": "306025",
+    "EAG61090218": "306825",
+    "EAG61090219": "306825",
+    "EAG62571101": "305227",
+    "EAG64089801": "304424",
+    "EAG64089806": "304424",
+    "EAG65010001": "306824",
+    "EAG66129804": "305226",
+    "EAG66129806": "305226",
+    "EAG66129807": "305225",
+    "EAG66129808": "305225",
+    "EAG66129903": "305225",
+    "EAG66129904": "305225",
+    "EAG66736401": "305224",
+    "EAG66765701": "306825",
+    "EAG66854501": "304425",
+    "EAG66854503": "304426",
+    "EBF61874701": "304424",
+    "EBF61874702": "304425",
+    "MDS62110242": "304424",
+    "EAG00473601": "306824",
+    "EAG00473603": "306024",
+    "EAG00474101": "304426",
+    "EAG00474301": "305227",
+    "EAG00474302": "305227",
+    "EAG58732903": "304424",
+    "EAG61008202": "305227",
+    "EAG61008203": "304427",
+    "EAG61030009": "304424",
+    "EAG61030010": "304424",
+    "EAG65031501": "302823",
+    "EAP65276405": "304425",
+    "EAP65297001": "304425",
+}
+
 def _infer_npm_feeder_id(part_number, uses_lr_position=True, spans_slots=1):
-    if spans_slots == 2:
-        return "304421" # 24mm width feeder
+    key = _part_key(part_number)
+
+    if key in KNOWN_LINE8_PART_FEEDERS:
+        return KNOWN_LINE8_PART_FEEDERS[key]
+
     if spans_slots >= 3:
+        if key.startswith("EAG610902"):
+            return "306025" # 44mm width feeder
+        if key.startswith(("EAG6109", "EAG6501", "EAG6676", "6630V93270")):
+            return "306825" # 56mm width feeder
         return "305221" # 32mm width feeder
 
-    key = _part_key(part_number)
+    if spans_slots == 2:
+        if key.startswith(("EAG6408", "EBF618", "MDS6211", "6212AB", "6630VK")):
+            return "304424" # 24mm width feeder
+        return "304421" # 24mm width feeder
     
     if not uses_lr_position:
         if not key:
             return "302001"
         if key.startswith(("EAN", "EAH", "EBK", "EAP", "EAV", "EAG", "MDS")):
             return "303623" # 16mm/24mm non-L/R
-        elif key.startswith(("EAM", "EAF", "EBC", "ERH", "EAE")):
+        elif key.startswith(("EAM", "EAF", "EBC", "ERH", "EAE", "EBJ")):
             return "302983" # 12mm non-L/R
         return "302001" # 8mm non-L/R
 

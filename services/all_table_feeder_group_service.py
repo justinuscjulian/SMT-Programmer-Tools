@@ -10,6 +10,7 @@ def natural_sort_key(s):
 
 class VirtualMachine:
     def __init__(self, line_type="Line 1-5"):
+        self.line_type = line_type
         self.tables = {}
         if line_type == "Line 1-5":
             for t in range(1, 5):
@@ -75,7 +76,7 @@ class VirtualMachine:
 
     def copy(self):
         import copy
-        new_vm = VirtualMachine()
+        new_vm = VirtualMachine(self.line_type)
         new_vm.tables = copy.deepcopy(self.tables)
         return new_vm
 
@@ -453,10 +454,12 @@ def _process_and_split_group(raw_group, group_label, models, master, global_vm, 
             final_unassigned.append(part)
             continue
         valid_tables = set()
+        part_spans = set()
         for vloc in valid_locs:
             parsed_vloc = vm._parse_loc(vloc)
             if parsed_vloc:
                 valid_tables.add(parsed_vloc[0])
+                part_spans.add(parsed_vloc[2] - parsed_vloc[1] + 1)
         if not valid_tables:
             final_unassigned.append(part)
             continue
@@ -464,6 +467,9 @@ def _process_and_split_group(raw_group, group_label, models, master, global_vm, 
         for loc, occupant in slot_mapping.items():
             parsed_loc = vm._parse_loc(loc)
             if not parsed_loc or parsed_loc[0] not in valid_tables:
+                continue
+            loc_span = parsed_loc[2] - parsed_loc[1] + 1
+            if part_spans and loc_span not in part_spans:
                 continue
             occupant_vars = variant_usage.get(occupant, set())
             existing_sub_vars = slot_sub_vars.get(loc, set())
@@ -519,9 +525,9 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
                 continue
             
             if line_type == "Line 8":
-                # For Line 8, Table 5 and Table 7 are for large components (no L/R)
-                if "[5]" in loc or "[7]" in loc:
-                    match = re.match(r'^(\[(?:5|7)\]\d+(?:-\d+)?)[LRlr]?$', loc)
+                # For Line 8, Table 7 is for large components (no L/R, 2-3 slots)
+                if "[7]" in loc:
+                    match = re.match(r'^(\[7\]\d+(?:-\d+)?)[LRlr]?$', loc)
                     if match:
                         loc = match.group(1)
             else:
@@ -535,8 +541,8 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
             new_alts = []
             for alt in item.get("alternatives", []):
                 if line_type == "Line 8":
-                    if "[5]" in alt or "[7]" in alt:
-                        match = re.match(r'^(\[(?:5|7)\]\d+(?:-\d+)?)[LRlr]?$', alt)
+                    if "[7]" in alt:
+                        match = re.match(r'^(\[7\]\d+(?:-\d+)?)[LRlr]?$', alt)
                         if match:
                             alt = match.group(1)
                 else:

@@ -89,7 +89,7 @@ HELP_SECTIONS = [
         "subtitle": "Convert export/program feeder NPM atau CM602 menjadi Excel feeder mapping.",
         "steps": [
             "Buka Other Tools lalu pilih Feeder Mapping Generator.",
-            "Pilih mode Single Feeder File untuk satu export NPM .txt/.crb, Multiple Feeder Files untuk beberapa file NPM/CM602, CM602 untuk satu file feeder/program CM602, CM602 Program File Converter to CM.txt untuk membuat file CM.txt, Excel to CM602 FeederFix TXT untuk membuat 45-FIX style file, atau Excel to NPM Feeder TXT untuk membuat file feeder import dari Excel.",
+            "Pilih mode Single Feeder File untuk satu export NPM .txt/.crb, Multiple Feeder Files untuk beberapa file NPM/CM602, CM602 untuk satu file feeder/program CM602, CM602 Program File Converter to CM.txt untuk membuat file CM.txt, Excel to CM602 FeederFix TXT untuk membuat 45-FIX style file, Excel to NPM Feeder TXT, atau Fix Feeder Group to NPM TXT untuk batch convert dari Excel All Table Fix Feeder.",
             "Di mode single atau CM602, klik Preview Mapping untuk mengecek Table, Slot, Position, Location Code, dan Part Number.",
             "Klik Generate Excel/Workbook lalu pilih lokasi output.",
         ],
@@ -110,6 +110,7 @@ HELP_SECTIONS = [
             "Jika Excel punya kolom tambahan berisi feeder ID, nilainya dipakai; kalau kosong, aplikasi memakai default catalog/rule feeder CM602.",
             "Mode Excel to NPM Feeder TXT membaca Excel dua kolom: Part Number dan Location Code, contoh [1]1L.",
             "Mode itu memakai program NPM .crb/.txt sebagai template untuk mengambil ID part dan ID feeder, lalu membuat file TXT lengkap dengan FixedFeeder dan StockData yang sudah diganti.",
+            "Mode Fix Feeder Group to NPM TXT secara otomatis meng-convert seluruh sheet group pada Excel All Table Fix Feeder menjadi berkas NPM TXT terpisah, dengan nama file otomatis berdasarkan daftar PCB Name per group.",
         ],
     },
     {
@@ -297,6 +298,23 @@ HELP_SECTIONS = [
         ],
         "notes": [
             "History saat ini menyimpan hasil BOM Comparison dan Machine Data Audit.",
+        ],
+    },
+    {
+        "title": "PCB Group Matcher",
+        "subtitle": "Mencari Fix Feeder Group terbaik dan efisien untuk PCB baru yang belum ada di list.",
+        "steps": [
+            "Buka Other Tools lalu pilih PCB Group Matcher.",
+            "Pilih metode import PCB baru (Single BOM File, PCB Folder, atau Single Program Excel).",
+            "Pilih file/folder PCB baru sesuai metode yang dipilih.",
+            "Pilih file Fix Feeder Group Excel (contoh: LINE 5 FIX FEEDER GROUP.xlsx).",
+            "Klik Analyze PCB Group Match untuk mengkalkulasi kecocokan (% Match Rate).",
+            "Klik baris Group pada tabel untuk melihat rincian komponen yang ter-cover dan feeder tambahan yang perlu dipasang.",
+            "Klik Export Result Excel untuk menyimpan laporan lengkap.",
+        ],
+        "notes": [
+            "Mendukung 3 metode import (Single BOM, PCB Folder, atau Single Program Excel) dengan tingkat akurasi komparasi yang sama.",
+            "Group diurutkan berdasarkan % kecocokan tertinggi dan jumlah feeder tambahan terkecil.",
         ],
     },
 ]
