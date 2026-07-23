@@ -495,10 +495,80 @@ def _process_and_split_group(raw_group, group_label, models, master, global_vm, 
 
     if overload_unassigned and len(raw_group) > 1:
         sub1, sub2 = _bipartition_pcbs(raw_group, models)
+
+        # Determine components shared between sub1 and sub2
+        sub1_parts = set()
+        for pcb_name in sub1:
+            m = models[pcb_name]
+            sub1_parts.update(set(str(val).strip().upper() for val in m.components.values() if val))
+
+        sub2_parts = set()
+        for pcb_name in sub2:
+            m = models[pcb_name]
+            sub2_parts.update(set(str(val).strip().upper() for val in m.components.values() if val))
+
+        shared_parent_parts = (sub1_parts & sub2_parts) - set(global_slot_mapping.values())
+
+        # Build parent base state by locking shared_parent_parts into parent_vm
+        parent_vm = global_vm.copy()
+        parent_slot_mapping = global_slot_mapping.copy()
+        parent_part_mapping = global_part_mapping.copy()
+        parent_unassigned = list(global_unassigned)
+
+        def _parent_sort_key(p):
+            loc_list = master.get(p, [])
+            num_options = 0
+            for item in loc_list:
+                if item["location"]:
+                    num_options += 1
+                num_options += len(item.get("alternatives", []))
+            if num_options == 0:
+                num_options = 999
+            master_freq = max([item["frequency"] for item in loc_list], default=0)
+            return (num_options, -master_freq)
+
+        sorted_parent_shared = sorted(list(shared_parent_parts), key=_parent_sort_key)
+
+        for part in sorted_parent_shared:
+            if part in parent_slot_mapping.values():
+                continue
+            loc_list = master.get(part, [])
+            if not loc_list:
+                parent_unassigned.append(part)
+                continue
+            loc_list = sorted(loc_list, key=lambda x: x["frequency"], reverse=True)
+
+            primary_loc = loc_list[0]["location"]
+            if not primary_loc:
+                parent_unassigned.append(part)
+                continue
+            candidates = [primary_loc]
+            for alt in loc_list[0].get("alternatives", []):
+                if alt and alt not in candidates:
+                    candidates.append(alt)
+            placed = False
+            for loc in candidates:
+                if parent_vm.can_add(loc):
+                    parent_vm.add(loc)
+                    parent_slot_mapping[loc] = part
+                    parent_part_mapping[part] = loc
+                    placed = True
+                    break
+                else:
+                    fallback = parent_vm.find_fallback(loc)
+                    if fallback:
+                        parent_vm.add(fallback)
+                        parent_slot_mapping[fallback] = part
+                        parent_part_mapping[part] = fallback
+                        placed = True
+                        break
+            if not placed:
+                parent_unassigned.append(part)
+
         label1 = f"{group_label}A" if not group_label[-1].isalpha() else f"{group_label}-1"
         label2 = f"{group_label}B" if not group_label[-1].isalpha() else f"{group_label}-2"
-        res1 = _process_and_split_group(sub1, label1, models, master, global_vm, global_slot_mapping, global_part_mapping, global_unassigned, line_type)
-        res2 = _process_and_split_group(sub2, label2, models, master, global_vm, global_slot_mapping, global_part_mapping, global_unassigned, line_type)
+        res1 = _process_and_split_group(sub1, label1, models, master, parent_vm, parent_slot_mapping, parent_part_mapping, parent_unassigned, line_type)
+        res2 = _process_and_split_group(sub2, label2, models, master, parent_vm, parent_slot_mapping, parent_part_mapping, parent_unassigned, line_type)
         return res1 + res2
 
     return [GroupResult(
