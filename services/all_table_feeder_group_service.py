@@ -379,43 +379,63 @@ def _process_and_split_group(raw_group, group_label, models, master, global_vm, 
                 unique.append(loc)
         return unique
 
+    # Strategy 2: Multi-Hop Recursive Chain Swap (Preserves Parent-Group Shared Lock)
+    protected_parts = placed_global_parts | set(global_slot_mapping.values()) | set(global_part_mapping.keys())
+
+    def _find_chain_swap(target_part, curr_vm, curr_slots, visited=None, depth=0, max_depth=6):
+        if depth > max_depth:
+            return None
+        if visited is None:
+            visited = set()
+        if target_part in visited:
+            return None
+        visited.add(target_part)
+
+        valid_locs = _get_valid_locs(target_part)
+        if not valid_locs:
+            return None
+
+        # Option 1: Direct placement in an empty valid slot
+        for loc in valid_locs:
+            if loc not in curr_slots and curr_vm.can_add(loc):
+                return [(target_part, None, loc)]
+
+        # Option 2: Swap occupant of a valid slot if occupant is not protected
+        for loc in valid_locs:
+            if loc not in curr_slots:
+                continue
+            occ = curr_slots[loc]
+            if occ in protected_parts or occ in visited:
+                continue
+
+            # Simulate freeing loc
+            temp_vm = curr_vm.copy()
+            temp_vm.remove(loc)
+            temp_slots = curr_slots.copy()
+            del temp_slots[loc]
+
+            sub_chain = _find_chain_swap(occ, temp_vm, temp_slots, visited.copy(), depth + 1, max_depth)
+            if sub_chain:
+                return [(target_part, occ, loc)] + sub_chain
+
+        return None
+
     swap_resolved = []
     for part in unassigned_parts:
-        valid_locs = _get_valid_locs(part)
-        if not valid_locs:
-            swap_resolved.append(part)
-            continue
-        swapped = False
-        for loc in valid_locs:
-            if loc not in slot_mapping and vm.can_add(loc):
-                vm.add(loc)
-                slot_mapping[loc] = part
-                part_mapping[part] = loc
-                swapped = True
-                break
-            if loc not in slot_mapping:
-                continue
-            occupant = slot_mapping[loc]
-            if occupant in placed_global_parts:
-                continue
-            occupant_valid = _get_valid_locs(occupant)
-            for occ_alt in occupant_valid:
-                if occ_alt == loc or occ_alt in slot_mapping:
-                    continue
-                if vm.can_add(occ_alt):
-                    vm.remove(loc)
-                    vm.add(occ_alt)
-                    vm.add(loc)
-                    del slot_mapping[loc]
-                    slot_mapping[occ_alt] = occupant
-                    slot_mapping[loc] = part
-                    part_mapping[occupant] = occ_alt
-                    part_mapping[part] = loc
-                    swapped = True
-                    break
-            if swapped:
-                break
-        if not swapped:
+        chain = _find_chain_swap(part, vm, slot_mapping)
+        if chain:
+            # Apply chain in reverse order
+            for step_part, step_occ, target_loc in reversed(chain):
+                if step_occ and target_loc in slot_mapping:
+                    # Move step_occ out of target_loc
+                    vm.remove(target_loc)
+                    del slot_mapping[target_loc]
+
+                # Place step_part into target_loc
+                vm.add(target_loc)
+                slot_mapping[target_loc] = step_part
+                part_mapping[step_part] = target_loc
+        else:
             swap_resolved.append(part)
 
     unassigned_parts = swap_resolved
