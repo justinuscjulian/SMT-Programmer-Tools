@@ -843,8 +843,8 @@ def _generate_npm_import_from_records_line8(mapping_records, duplicate_rows, map
             max_idnum += 1
             new_row = {
                 "IDNUM": str(max_idnum),
-                "NAME": record["part_number"],
-                "LNAME": "ohm",
+                "NAME": f'"{record["part_number"]}"',
+                "LNAME": '"ohm"',
                 "REELS": "1",
                 "SKIP": "0",
                 "NoAutoDivide": "0",
