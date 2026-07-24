@@ -134,19 +134,44 @@ class FeederMappingBatchResult:
     output_path: str = ""
 
 
-@dataclass
-class NpmFeederImportResult:
-    output_path: str
-    mapping_file: str
-    template_file: str
-    mapping_row_count: int
-    assigned_part_count: int
-    assignment_count: int
-    missing_part_rows: list
-    missing_location_rows: list
-    missing_feeder_rows: list
-    conflict_rows: list
-    duplicate_rows: list
+class NpmFeederImportResult(dict):
+    def __init__(
+        self,
+        output_path: str = "",
+        mapping_file: str = "",
+        template_file: str = "",
+        mapping_row_count: int = 0,
+        assigned_part_count: int = 0,
+        assignment_count: int = 0,
+        missing_part_rows: list = None,
+        missing_location_rows: list = None,
+        missing_feeder_rows: list = None,
+        conflict_rows: list = None,
+        duplicate_rows: list = None,
+    ):
+        data = {
+            "output_path": output_path,
+            "mapping_file": mapping_file,
+            "template_file": template_file,
+            "mapping_row_count": mapping_row_count,
+            "assigned_part_count": assigned_part_count,
+            "assignment_count": assignment_count,
+            "missing_part_rows": missing_part_rows if missing_part_rows is not None else [],
+            "missing_location_rows": missing_location_rows if missing_location_rows is not None else [],
+            "missing_feeder_rows": missing_feeder_rows if missing_feeder_rows is not None else [],
+            "conflict_rows": conflict_rows if conflict_rows is not None else [],
+            "duplicate_rows": duplicate_rows if duplicate_rows is not None else [],
+        }
+        super().__init__(data)
+
+    def __getattr__(self, name):
+        try:
+            return self[name]
+        except KeyError:
+            raise AttributeError(f"'NpmFeederImportResult' object has no attribute '{name}'")
+
+    def __setattr__(self, name, value):
+        self[name] = value
 
 
 @dataclass
@@ -970,7 +995,7 @@ def _looks_like_import_header(first, second):
 
 
 def _parse_import_location_code(location_code):
-    match = re.match(r"^\[(\d+)\](\d+)(?:-(\d+))?([LR])?$", str(location_code or "").strip(), flags=re.IGNORECASE)
+    match = re.match(r"^\[(\d+)\](\d+)(?:-(\d+))?[-_]?([LR])?$", str(location_code or "").strip(), flags=re.IGNORECASE)
     if not match:
         return None
 
@@ -981,16 +1006,20 @@ def _parse_import_location_code(location_code):
     suffix = str(match.group(4) or "").upper()
     side = "B" if suffix == "R" else "A"
     
-    normalized_location = f"[{table}]{slot}"
+    normalized_location = f"[{table}]{slot:02d}" if slot < 10 else f"[{table}]{slot}"
     if end_slot > slot:
         normalized_location += f"-{end_slot}"
-    normalized_location += suffix
+    if suffix:
+        normalized_location += f"-{suffix}" if "-" in str(location_code) else suffix
 
     return {
         "table": table,
         "slot": slot,
+        "end_slot": end_slot,
         "pu": table * 10000 + slot,
+        "pu_side": 2 if suffix == "R" else 1,
         "side": side,
+        "side_char": suffix,
         "uses_lr_position": suffix in {"L", "R"},
         "normalized_location": normalized_location,
         "spans_slots": spans_slots,
@@ -1114,36 +1143,31 @@ KNOWN_LINE8_PART_FEEDERS = {
     "EAP65297001": "304425",
 }
 
-def _infer_npm_feeder_id(part_number, uses_lr_position=True, spans_slots=1):
-    key = _part_key(part_number)
+def _infer_npm_feeder_id(part_number: str, uses_lr_position: bool = True, spans_slots: int = 1) -> str:
+    # 1. Multi-slot Feeder Check
+    if spans_slots == 2:
+        return "304421"  # Double-slot tape feeder (16/24/32mm)
+    if spans_slots >= 3:
+        return "305221"  # Multi-slot tape feeder (44mm+)
+
+    key = _part_key(part_number)  # clean & uppercase string
 
     if key in KNOWN_LINE8_PART_FEEDERS:
         return KNOWN_LINE8_PART_FEEDERS[key]
 
-    if spans_slots >= 3:
-        if key.startswith("EAG610902"):
-            return "306025" # 44mm width feeder
-        if key.startswith(("EAG6109", "EAG6501", "EAG6676", "6630V93270")):
-            return "306825" # 56mm width feeder
-        return "305221" # 32mm width feeder
-
-    if spans_slots == 2:
-        if key.startswith(("EAG6408", "EBF618", "MDS6211", "6212AB", "6630VK")):
-            return "304424" # 24mm width feeder
-        return "304421" # 24mm width feeder
-    
+    # 2. Non-L/R Position (Single Lane 8mm Feeder)
     if not uses_lr_position:
         if not key:
             return "302001"
         if key.startswith(("EAN", "EAH", "EBK", "EAP", "EAV", "EAG", "MDS")):
-            return "303623" # 16mm/24mm non-L/R
-        elif key.startswith(("EAM", "EAF", "EBC", "ERH", "EAE", "EBJ")):
-            return "302983" # 12mm non-L/R
-        return "302001" # 8mm non-L/R
+            return "303623"
+        if key.startswith(("EAM", "EAF", "EBC", "ERH", "EAE")):
+            return "302983"
+        return "302001"
 
+    # 3. L/R Position (Double Lane 8mm Feeder)
     if not key:
         return "302481"
-    
     if key.startswith("0TRK"):
         return "302502"
     if key.startswith("0CZZ"):
@@ -1157,27 +1181,25 @@ def _infer_npm_feeder_id(part_number, uses_lr_position=True, spans_slots=1):
     if key.startswith("0R"):
         return "302481"
 
+    # Ceramic Capacitor Matching via Regex
     ceramic_match = re.match(r"^0C[CK]\d+([A-Z]{2})", key)
     if ceramic_match:
         package_code = ceramic_match.group(1)
-        if package_code in {"DC", "DD", "DK"}:
+        if package_code in {"DK", "DC", "DD"}:
             return "302502"
-        if package_code in {"CC", "CD", "CK"}:
+        if package_code in {"CD", "CC", "CK"}:
             return "302482"
         return "302481"
 
-    if key.startswith(("EAN", "EBK")):
-        return "302502"
-    if key.startswith("EAH"):
+    # Component Prefix Checks for Double Lane Feeder
+    if key.startswith(("EAN", "EBK", "EAH")):
         return "302502"
     if key.startswith("EAM"):
         return "302482"
-    if key.startswith(("EAF", "EBC", "ERH")):
-        return "302481"
-    if key.startswith("EAE"):
+    if key.startswith(("EAF", "EBC", "ERH", "EAE")):
         return "302481"
 
-    return "302481"
+    return "302481"  # Default fallback for Double Lane 8mm Feeder
 
 
 def _template_feeder_candidates(part_key, feeder_lookup, template_assignments):
