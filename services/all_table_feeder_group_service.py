@@ -709,25 +709,29 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
     
     total_groups = len(raw_groups)
 
-    # Phase 1: Determine Global Base Components (parts used across ALL groups)
-    group_parts_sets = []
+    # Phase 1: Determine Global Base Components (parts used across multiple groups, count >= 2)
+    part_group_counts = {}
     for raw_group in raw_groups:
         parts_in_g = set()
         for pcb_name in raw_group:
             m = models[pcb_name]
             parts_in_g.update(set(str(val).strip().upper() for val in m.components.values() if val))
-        group_parts_sets.append(parts_in_g)
+        for part in parts_in_g:
+            part_group_counts[part] = part_group_counts.get(part, 0) + 1
         
-    global_base_parts = set()
-    if len(group_parts_sets) > 1:
-        global_base_parts = set.intersection(*group_parts_sets)
-    elif len(group_parts_sets) == 1:
+    if len(raw_groups) > 1:
+        global_base_parts = {part for part, count in part_group_counts.items() if count >= 2}
+    elif len(raw_groups) == 1:
         all_pcb_sets = []
         for pcb_name in raw_groups[0]:
             m = models[pcb_name]
             all_pcb_sets.append(set(str(val).strip().upper() for val in m.components.values() if val))
         if all_pcb_sets:
             global_base_parts = set.intersection(*all_pcb_sets)
+        else:
+            global_base_parts = set()
+    else:
+        global_base_parts = set()
 
     # Phase 2: Lock Global Base Components to identical slots across all groups
     global_vm = VirtualMachine(line_type=line_type)
@@ -745,7 +749,7 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
         if num_options == 0:
             num_options = 999
         master_freq = max([item["frequency"] for item in loc_list], default=0)
-        return (num_options, -master_freq)
+        return (-part_group_counts.get(p, 0), num_options, -master_freq)
 
     sorted_global_base = sorted(list(global_base_parts), key=_global_sort_key)
 
