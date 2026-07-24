@@ -424,17 +424,35 @@ def _process_and_split_group(raw_group, group_label, models, master, global_vm, 
     for part in unassigned_parts:
         chain = _find_chain_swap(part, vm, slot_mapping)
         if chain:
-            # Apply chain in reverse order
-            for step_part, step_occ, target_loc in reversed(chain):
-                if step_occ and target_loc in slot_mapping:
-                    # Move step_occ out of target_loc
-                    vm.remove(target_loc)
-                    del slot_mapping[target_loc]
+            backup_vm = vm.copy()
+            backup_slots = slot_mapping.copy()
+            backup_parts = part_mapping.copy()
+            try:
+                # 2-Pass Atomic Transaction: First remove all old locations from vm & slot_mapping
+                for step_part, step_occ, target_loc in chain:
+                    if step_occ and target_loc in slot_mapping:
+                        vm.remove(target_loc)
+                        del slot_mapping[target_loc]
 
-                # Place step_part into target_loc
-                vm.add(target_loc)
-                slot_mapping[target_loc] = step_part
-                part_mapping[step_part] = target_loc
+                # Second pass: Place all step_parts into target_locs
+                for step_part, step_occ, target_loc in chain:
+                    if vm.can_add(target_loc):
+                        vm.add(target_loc)
+                        slot_mapping[target_loc] = step_part
+                        part_mapping[step_part] = target_loc
+                    else:
+                        fallback = vm.find_fallback(target_loc)
+                        if fallback:
+                            vm.add(fallback)
+                            slot_mapping[fallback] = step_part
+                            part_mapping[step_part] = fallback
+                        else:
+                            raise ValueError(f"Cannot add {target_loc}")
+            except Exception:
+                vm = backup_vm
+                slot_mapping = backup_slots
+                part_mapping = backup_parts
+                swap_resolved.append(part)
         else:
             swap_resolved.append(part)
 
