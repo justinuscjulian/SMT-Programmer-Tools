@@ -1033,8 +1033,8 @@ def _select_auto_template(mapping_records):
     has_table_7_large = False
 
     for record in mapping_records:
-        table = record.get("table", 0)
-        slot = record.get("slot", 0)
+        table = record.get("table", record.get("parsed_location", {}).get("table", 0))
+        slot = record.get("slot", record.get("parsed_location", {}).get("slot", 0))
         spans = record.get("spans_slots", 1)
         uses_lr = record.get("uses_lr_position", False)
 
@@ -1047,11 +1047,9 @@ def _select_auto_template(mapping_records):
         if table == 7 and (spans >= 2 or not uses_lr):
             has_table_7_large = True
 
-    if has_table_7_large and not has_table_8 and not has_table_9_or_10:
-        template_name = "assets/npm_base_template_line8.txt"
-    elif has_table_8 or (has_large_slot_table_1_4 and has_table_9_or_10):
+    if has_large_slot_table_1_4:
         template_name = "assets/npm_base_template_line67.txt"
-    elif has_large_slot_table_1_4 and not has_table_8:
+    elif (has_table_8 or has_table_7_large) and not has_table_9_or_10:
         template_name = "assets/npm_base_template_line8.txt"
     else:
         template_name = "assets/npm_base_template.txt"
