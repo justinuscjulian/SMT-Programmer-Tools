@@ -160,6 +160,19 @@ class GroupResult:
         self.unassigned_parts = unassigned_parts or []
         self.substitute_mapping = substitute_mapping or {}
 
+
+def _is_special_table(loc_str, line_type):
+    if not loc_str:
+        return False
+    match = re.match(r"^\[(\d+)\]", str(loc_str))
+    if not match:
+        return False
+    table_num = int(match.group(1))
+    if line_type == "Line 8":
+        return table_num in (5, 7)
+    else:
+        return table_num in (7, 9)
+
 def get_master_mapping(excel_path, line_type=None):
     wb = load_workbook(excel_path, read_only=True, data_only=True)
     ws = wb.active
@@ -745,6 +758,12 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
             global_unassigned.append(part)
             continue
         loc_list = sorted(loc_list, key=lambda x: x["frequency"], reverse=True)
+
+        primary_loc_check = loc_list[0]["location"] if loc_list else ""
+        if _is_special_table(primary_loc_check, line_type):
+            # Special tables (7 & 9 for Line 1-7, 5 & 7 for Line 8) are excluded from Global Lock
+            # They are locked at the Local Group level instead to guarantee 0% skipped components.
+            continue
 
         # Check global average inserts for balancing
         inserts_total = sum(model.insert_averages.get(part, 0) for model in models.values())
