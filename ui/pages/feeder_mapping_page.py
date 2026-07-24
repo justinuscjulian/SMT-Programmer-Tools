@@ -135,7 +135,9 @@ class FeederMappingPage(WorkerPage):
         self.cm602_program_cm_txt_mode_radio = QRadioButton("CM602 Program File Converter to CM.txt")
         self.cm602_feeder_fix_mode_radio = QRadioButton("Excel to CM602 FeederFix TXT")
         self.import_mode_radio = QRadioButton("Excel to NPM Feeder TXT")
+        self.import_mode_line8_radio = QRadioButton("Excel to NPM Feeder TXT (Line 8)")
         self.group_import_mode_radio = QRadioButton("Fix Feeder Group to NPM TXT")
+        self.group_import_mode_line8_radio = QRadioButton("Fix Feeder Group to NPM TXT (Line 8)")
         self.npm_editor_mode_radio = QRadioButton("Edit NPM Feeder TXT")
         self.single_mode_radio.setChecked(True)
         self.mode_group = QButtonGroup(self)
@@ -145,7 +147,9 @@ class FeederMappingPage(WorkerPage):
         self.mode_group.addButton(self.cm602_program_cm_txt_mode_radio)
         self.mode_group.addButton(self.cm602_feeder_fix_mode_radio)
         self.mode_group.addButton(self.import_mode_radio)
+        self.mode_group.addButton(self.import_mode_line8_radio)
         self.mode_group.addButton(self.group_import_mode_radio)
+        self.mode_group.addButton(self.group_import_mode_line8_radio)
         self.mode_group.addButton(self.npm_editor_mode_radio)
         self.single_mode_radio.toggled.connect(self._sync_mode_ui)
         self.multiple_mode_radio.toggled.connect(self._sync_mode_ui)
@@ -153,7 +157,9 @@ class FeederMappingPage(WorkerPage):
         self.cm602_program_cm_txt_mode_radio.toggled.connect(self._sync_mode_ui)
         self.cm602_feeder_fix_mode_radio.toggled.connect(self._sync_mode_ui)
         self.import_mode_radio.toggled.connect(self._sync_mode_ui)
+        self.import_mode_line8_radio.toggled.connect(self._sync_mode_ui)
         self.group_import_mode_radio.toggled.connect(self._sync_mode_ui)
+        self.group_import_mode_line8_radio.toggled.connect(self._sync_mode_ui)
         self.npm_editor_mode_radio.toggled.connect(self._sync_mode_ui)
         mode_row.addWidget(self.single_mode_radio)
         mode_row.addWidget(self.multiple_mode_radio)
@@ -161,7 +167,9 @@ class FeederMappingPage(WorkerPage):
         mode_row.addWidget(self.cm602_program_cm_txt_mode_radio)
         mode_row.addWidget(self.cm602_feeder_fix_mode_radio)
         mode_row.addWidget(self.import_mode_radio)
+        mode_row.addWidget(self.import_mode_line8_radio)
         mode_row.addWidget(self.group_import_mode_radio)
+        mode_row.addWidget(self.group_import_mode_line8_radio)
         mode_row.addWidget(self.npm_editor_mode_radio)
         mode_row.addStretch(1)
         mode_card.layout.addLayout(mode_row)
@@ -460,6 +468,12 @@ class FeederMappingPage(WorkerPage):
         self._update_summary(len(filtered_records), len(records))
 
     def generate_excel(self):
+        if self._is_group_import_mode_line8():
+            self.generate_npm_group_import_files_line8()
+            return
+        if self._is_import_mode_line8():
+            self.generate_npm_import_file_line8()
+            return
         if self._is_group_import_mode():
             self.generate_npm_group_import_files()
             return
@@ -576,6 +590,53 @@ class FeederMappingPage(WorkerPage):
             lambda mapping=mapping_path, out=output_path: feeder_mapping_service.generate_cm602_feeder_fix_import_file(mapping, out),
             self._on_generate_cm602_feeder_fix_done,
             "Converting Excel to CM602 FeederFix TXT...",
+        )
+
+    def generate_npm_import_file_line8(self):
+        mapping_path = self.source_picker.path()
+        template_path = self.reference_picker.path()
+        if not mapping_path:
+            QMessageBox.warning(self, "Input belum lengkap", "Feeder Mapping Excel (Line 8) belum dipilih.")
+            return
+        if not template_path:
+            template_path = ""
+
+        output_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save NPM Feeder Import TXT (Line 8)",
+            feeder_mapping_service.suggest_npm_import_output_name(mapping_path),
+            "Text File (*.txt)",
+        )
+        if not output_path:
+            return
+
+        self.run_worker(
+            lambda mapping=mapping_path, template=template_path, out=output_path: feeder_mapping_service.generate_npm_feeder_import_file_line8(mapping, template, out),
+            self._on_generate_npm_import_done,
+            "Converting Line 8 feeder mapping to NPM TXT...",
+        )
+
+    def generate_npm_group_import_files_line8(self):
+        mapping_path = self.source_picker.path()
+        template_path = self.reference_picker.path()
+        if not mapping_path:
+            QMessageBox.warning(self, "Input belum lengkap", "File Fix Feeder Group Excel (Line 8) belum dipilih.")
+            return
+        if not template_path:
+            template_path = ""
+
+        output_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Pilih Folder Penyimpanan Output NPM TXT (Line 8)",
+            str(Path(mapping_path).parent),
+        )
+        if not output_dir:
+            return
+
+        self.run_worker(
+            lambda mapping=mapping_path, template=template_path, out=output_dir: feeder_mapping_service.generate_npm_feeder_import_batch_from_groups_line8(mapping, template, out),
+            self._on_generate_npm_group_import_done,
+            "Converting Line 8 Fix Feeder Groups to NPM TXT...",
         )
 
     def generate_npm_import_file(self):
@@ -1046,8 +1107,14 @@ class FeederMappingPage(WorkerPage):
     def _is_import_mode(self):
         return self.import_mode_radio.isChecked()
 
+    def _is_import_mode_line8(self):
+        return self.import_mode_line8_radio.isChecked()
+
     def _is_group_import_mode(self):
         return self.group_import_mode_radio.isChecked()
+
+    def _is_group_import_mode_line8(self):
+        return self.group_import_mode_line8_radio.isChecked()
 
     def _is_npm_editor_mode(self):
         return self.npm_editor_mode_radio.isChecked()
@@ -1057,8 +1124,8 @@ class FeederMappingPage(WorkerPage):
         is_cm602 = self._is_cm602_mode()
         is_cm602_program_cm_txt = self._is_cm602_program_cm_txt_mode()
         is_cm602_feeder_fix = self._is_cm602_feeder_fix_mode()
-        is_import = self._is_import_mode()
-        is_group_import = self._is_group_import_mode()
+        is_import = self._is_import_mode() or self._is_import_mode_line8()
+        is_group_import = self._is_group_import_mode() or self._is_group_import_mode_line8()
         is_npm_editor = self._is_npm_editor_mode()
 
         if is_npm_editor:
@@ -1066,12 +1133,12 @@ class FeederMappingPage(WorkerPage):
             self.source_picker.button.setText("Browse")
         elif is_group_import:
             self.source_picker.label.setText("Fix Feeder Group Excel (.xlsx):")
-            self.reference_picker.label.setText("NPM Program Template (Optional, kosongkan untuk auto):")
+            self.reference_picker.label.setText("NPM Program Template (Optional, kosongkan untuk auto Line 8):" if self._is_group_import_mode_line8() else "NPM Program Template (Optional, kosongkan untuk auto):")
             self.source_picker.button.setText("Browse")
             self.reference_picker.button.setText("Browse")
         elif is_import:
             self.source_picker.label.setText("Feeder Mapping Excel (.xlsx):")
-            self.reference_picker.label.setText("NPM Program Template (Optional, kosongkan untuk auto):")
+            self.reference_picker.label.setText("NPM Program Template (Optional, kosongkan untuk auto Line 8):" if self._is_import_mode_line8() else "NPM Program Template (Optional, kosongkan untuk auto):")
             self.source_picker.button.setText("Browse")
             self.reference_picker.button.setText("Browse")
         elif is_cm602_feeder_fix:

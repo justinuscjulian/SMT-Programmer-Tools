@@ -560,6 +560,131 @@ def generate_npm_feeder_import_batch_from_groups(mapping_path, template_path, ou
     )
 
 
+def generate_npm_feeder_import_file_line8(mapping_path, template_path, output_path):
+    mapping_file = Path(_clean_path(mapping_path))
+    if not mapping_file.is_file():
+        raise ServiceError(f"File Excel feeder mapping tidak ditemukan:\n{mapping_file}", title="File tidak ditemukan")
+    if mapping_file.suffix.lower() not in {".xlsx", ".xlsm"}:
+        raise ServiceError("Input feeder mapping harus file Excel .xlsx/.xlsm.", title="Format tidak valid")
+
+    if template_path:
+        template = Path(_clean_path(template_path))
+        if not template.is_file():
+            raise ServiceError(f"Template program NPM tidak ditemukan:\n{template}", title="File tidak ditemukan")
+        if template.suffix.lower() not in {".txt", ".crb"}:
+            raise ServiceError("Template NPM harus file .txt atau .crb.", title="Format tidak valid")
+
+    output = Path(output_path)
+    if output.suffix.lower() != ".txt":
+        output = output.with_suffix(".txt")
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    mapping_records, duplicate_rows = _load_import_mapping_workbook(mapping_file)
+
+    return _generate_npm_import_from_records_line8(
+        mapping_records=mapping_records,
+        duplicate_rows=duplicate_rows,
+        mapping_file_name=mapping_file.name,
+        template_path=template_path,
+        output_path=output,
+    )
+
+
+def generate_npm_feeder_import_batch_from_groups_line8(mapping_path, template_path, output_dir_path):
+    mapping_file = Path(_clean_path(mapping_path))
+    if not mapping_file.is_file():
+        raise ServiceError(f"File Excel feeder mapping tidak ditemukan:\n{mapping_file}", title="File tidak ditemukan")
+    if mapping_file.suffix.lower() not in {".xlsx", ".xlsm"}:
+        raise ServiceError("Input feeder mapping harus file Excel .xlsx/.xlsm.", title="Format tidak valid")
+
+    if template_path:
+        template = Path(_clean_path(template_path))
+        if not template.is_file():
+            raise ServiceError(f"Template program NPM tidak ditemukan:\n{template}", title="File tidak ditemukan")
+        if template.suffix.lower() not in {".txt", ".crb"}:
+            raise ServiceError("Template NPM harus file .txt atau .crb.", title="Format tidak valid")
+
+    output_dir = Path(output_dir_path)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        workbook = load_workbook(mapping_file, data_only=True, read_only=True)
+    except Exception as exc:
+        raise ServiceError("File Excel feeder mapping tidak bisa dibaca.", title="Excel tidak valid") from exc
+
+    group_pcbs = defaultdict(list)
+    if "Summary" in workbook.sheetnames:
+        ws_sum = workbook["Summary"]
+        header = None
+        group_idx = -1
+        pcb_idx = -1
+        for row in ws_sum.iter_rows(values_only=True):
+            vals = [_clean_excel_cell(c) for c in row]
+            if not any(vals):
+                continue
+            if header is None:
+                header_upper = [v.upper() for v in vals]
+                if "GROUP NAME" in header_upper and "PCB NAME" in header_upper:
+                    header = header_upper
+                    group_idx = header_upper.index("GROUP NAME")
+                    pcb_idx = header_upper.index("PCB NAME")
+            else:
+                if group_idx >= 0 and pcb_idx >= 0 and len(vals) > max(group_idx, pcb_idx):
+                    g_name = vals[group_idx]
+                    p_name = vals[pcb_idx]
+                    if g_name and p_name:
+                        if p_name not in group_pcbs[g_name]:
+                            group_pcbs[g_name].append(p_name)
+
+    group_results = []
+
+    for worksheet in workbook.worksheets:
+        if worksheet.title.lower() in {"summary", "summary sheet"}:
+            continue
+
+        records, duplicates = _read_import_mapping_sheet(worksheet)
+        if not records:
+            continue
+
+        sheet_title = worksheet.title
+        pcbs = group_pcbs.get(sheet_title, [])
+        if pcbs:
+            raw_filename = ", ".join(pcbs)
+        else:
+            raw_filename = sheet_title
+
+        clean_filename = re.sub(r'[\\/*?:"<>|]', '_', raw_filename).strip()
+        if not clean_filename:
+            clean_filename = sheet_title
+
+        out_txt_path = output_dir / f"{clean_filename}.txt"
+
+        res = _generate_npm_import_from_records_line8(
+            mapping_records=records,
+            duplicate_rows=duplicates,
+            mapping_file_name=mapping_file.name,
+            template_path=template_path,
+            output_path=out_txt_path,
+        )
+        group_results.append(res)
+
+    workbook.close()
+
+    if not group_results:
+        raise ServiceError(
+            "Tidak ditemukan sheet group fix feeder yang memiliki data slot dan part number valid.",
+            title="Data tidak ditemukan",
+        )
+
+    return NpmFeederImportBatchResult(
+        output_dir=str(output_dir),
+        mapping_file=mapping_file.name,
+        group_results=group_results,
+        total_groups=len(group_results),
+        successful_groups=len(group_results),
+    )
+
+
 def _generate_npm_import_from_records(mapping_records, duplicate_rows, mapping_file_name, template_path, output_path):
     output = Path(output_path)
     if output.suffix.lower() != ".txt":
@@ -673,6 +798,127 @@ def _generate_npm_import_from_records(mapping_records, duplicate_rows, mapping_f
     new_fixed_rows = [row for row in new_fixed_rows if int(float(str(row.get("PU", 0)))) not in blocked_pus]
     new_fixed_rows.sort(key=lambda r: int(float(str(r.get("PU", 0)))))
     output_lines = _replace_feeder_import_sections(template_lines, fixed_header, new_fixed_rows, part_rows if is_auto else None)
+    with output.open("w", encoding=encoding, newline="") as handle:
+        handle.writelines(output_lines)
+
+    return NpmFeederImportResult(
+        output_path=str(output),
+        mapping_file=mapping_file_name,
+        template_file=template.name,
+        mapping_row_count=len(mapping_records),
+        assigned_part_count=len(assigned_part_keys),
+        assignment_count=assignment_count,
+        missing_part_rows=missing_part_rows,
+        missing_location_rows=missing_location_rows,
+        missing_feeder_rows=missing_feeder_rows,
+        conflict_rows=conflict_rows,
+        duplicate_rows=duplicate_rows,
+    )
+
+
+def _generate_npm_import_from_records_line8(mapping_records, duplicate_rows, mapping_file_name, template_path, output_path):
+    output = Path(output_path)
+    if output.suffix.lower() != ".txt":
+        output = output.with_suffix(".txt")
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    if not template_path:
+        template = Path(resource_path("assets/npm_base_template_line8.txt"))
+    else:
+        template = Path(_clean_path(template_path))
+
+    template_lines, encoding = read_lines_with_fallback(template)
+    fixed_header = _fixed_feeder_header(template_lines)
+    fixed_rows = _read_section_rows(template_lines, "FixedFeeder")
+    part_rows = _read_first_available_section_rows(template_lines, ("PartsData", "PartsDataEx"))
+    part_lookup = _build_part_lookup_by_name(part_rows)
+    part_lookup_by_id = _build_lookup(part_rows, "IDNUM")
+    feeder_lookup = _build_lookup(_read_section_rows(template_lines, "FeederData"), "IDNUM")
+    template_assignments = _existing_fixed_assignments(fixed_rows, part_lookup_by_id, feeder_lookup)
+
+    max_idnum = max([int(float(str(r.get("IDNUM", 0)))) for r in part_rows if str(r.get("IDNUM", "")).replace(".", "", 1).isdigit()], default=0)
+    for record in mapping_records:
+        part_key = _part_key(record["part_number"])
+        if part_key not in part_lookup:
+            max_idnum += 1
+            new_row = {
+                "IDNUM": str(max_idnum),
+                "NAME": record["part_number"],
+                "LNAME": "ohm",
+                "REELS": "1",
+                "SKIP": "0",
+                "NoAutoDivide": "0",
+                "Alt": "0",
+                "AltNum": "0",
+                "NoArrange": "0",
+            }
+            part_rows.append(new_row)
+            part_lookup[part_key] = new_row
+
+    new_fixed_rows = [_empty_fixed_import_row(row) for row in fixed_rows]
+    fixed_by_pu = {str(row.get("PU", "")).strip(): row for row in new_fixed_rows}
+
+    assigned_part_keys = set()
+    assignment_count = 0
+    missing_part_rows = []
+    missing_location_rows = []
+    missing_feeder_rows = []
+    conflict_rows = []
+    occupied = {}
+    blocked_pus = set()
+
+    for record in sorted(mapping_records, key=_import_mapping_priority):
+        part_number = record["part_number"]
+        part_key = _part_key(part_number)
+        location_code = record["location_code"]
+        part_row = part_lookup.get(part_key)
+        if part_row is None:
+            missing_part_rows.append(f"Row {record['row_number']}: {part_number}")
+            continue
+
+        fixed_row = fixed_by_pu.get(str(record["pu"]))
+        if fixed_row is None:
+            max_idnum = max([int(float(str(r.get("IDNUM", 0)))) for r in new_fixed_rows if str(r.get("IDNUM", "")).replace(".", "", 1).isdigit()], default=0)
+            base_row = {col: "0" for col in fixed_header}
+            base_row["IDNUM"] = str(max_idnum + 1)
+            base_row["Group"] = "0"
+            base_row["PU"] = str(record["pu"])
+            fixed_row = _empty_fixed_import_row(base_row)
+            new_fixed_rows.append(fixed_row)
+            fixed_by_pu[str(record["pu"])] = fixed_row
+
+        conflict = _first_import_location_conflict(record, occupied)
+        if conflict:
+            conflict_rows.append(f"Row {record['row_number']}: {part_number} @ {location_code} nabrak dengan {conflict}")
+            continue
+
+        feeder_id = _feeder_id_for_import_location_line8(
+            part_key,
+            part_row,
+            feeder_lookup,
+            record["uses_lr_position"],
+            template_assignments,
+            spans_slots=record.get("spans_slots", 1),
+        )
+        if not feeder_id:
+            label = "compact L/R" if record["uses_lr_position"] else "non L/R"
+            missing_feeder_rows.append(f"Row {record['row_number']}: {part_number} tidak punya feeder {label}")
+            continue
+
+        _set_fixed_import_assignment(fixed_row, record["side"], feeder_id, part_row["IDNUM"], record["uses_lr_position"])
+        _occupy_import_location(record, occupied)
+        assigned_part_keys.add(part_key)
+        assignment_count += 1
+
+        spans_slots = record.get("spans_slots", 1)
+        if spans_slots > 1:
+            for s in range(1, spans_slots):
+                blocked_pu = record["pu"] + s
+                blocked_pus.add(blocked_pu)
+
+    new_fixed_rows = [row for row in new_fixed_rows if int(float(str(row.get("PU", 0)))) not in blocked_pus]
+    new_fixed_rows.sort(key=lambda r: int(float(str(r.get("PU", 0)))))
+    output_lines = _replace_feeder_import_sections(template_lines, fixed_header, new_fixed_rows, part_rows)
     with output.open("w", encoding=encoding, newline="") as handle:
         handle.writelines(output_lines)
 
@@ -1198,6 +1444,43 @@ def _infer_npm_feeder_id(part_number: str, uses_lr_position: bool = True, spans_
         return "302481"
 
     return "302481"  # Default fallback for Double Lane 8mm Feeder
+
+
+def _infer_npm_feeder_id_line8(part_number: str, uses_lr_position: bool = True, spans_slots: int = 1) -> str:
+    key = _part_key(part_number)
+    if key in KNOWN_LINE8_PART_FEEDERS:
+        return KNOWN_LINE8_PART_FEEDERS[key]
+    if spans_slots >= 3:
+        if key.startswith("EAG610902"):
+            return "306025"
+        if key.startswith(("EAG6109", "EAG6501", "EAG6676", "6630V93270")):
+            return "306825"
+        if key.startswith("EAG004736"):
+            return "306824"
+        return "305221"
+    if spans_slots == 2:
+        if key.startswith("EAG66854501"):
+            return "304425"
+        if key.startswith("EAG661298"):
+            return "305226"
+        if key.startswith("EAG66854503"):
+            return "304426"
+        if key.startswith("EBF61874702"):
+            return "304425"
+        if key.startswith("EBF61874701"):
+            return "304424"
+        if key.startswith(("EAG6408", "EBF618", "MDS6211", "6212AB", "6630VK")):
+            return "304424"
+        return "304421"
+    return _infer_npm_feeder_id(part_number, uses_lr_position=uses_lr_position, spans_slots=spans_slots)
+
+
+def _feeder_id_for_import_location_line8(part_key, part_row, feeder_lookup, uses_lr_position, template_assignments, spans_slots=1):
+    if part_key in template_assignments:
+        ass_list = template_assignments[part_key]
+        if ass_list and "feeder_id" in ass_list[0]:
+            return ass_list[0]["feeder_id"]
+    return _infer_npm_feeder_id_line8(part_key, uses_lr_position=uses_lr_position, spans_slots=spans_slots)
 
 
 def _template_feeder_candidates(part_key, feeder_lookup, template_assignments):
