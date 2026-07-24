@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
     QFormLayout,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -128,51 +129,61 @@ class FeederMappingPage(WorkerPage):
         mode_title = QLabel("Generator Mode")
         mode_title.setObjectName("SectionTitle")
         mode_card.layout.addWidget(mode_title)
-        mode_row = QHBoxLayout()
+
+        mode_grid = QGridLayout()
+        mode_grid.setContentsMargins(4, 4, 4, 4)
+        mode_grid.setHorizontalSpacing(28)
+        mode_grid.setVerticalSpacing(12)
+
         self.single_mode_radio = QRadioButton("Single Feeder File")
         self.multiple_mode_radio = QRadioButton("Multiple Feeder Files")
-        self.cm602_mode_radio = QRadioButton("CM602")
-        self.cm602_program_cm_txt_mode_radio = QRadioButton("CM602 Program File Converter to CM.txt")
-        self.cm602_feeder_fix_mode_radio = QRadioButton("Excel to CM602 FeederFix TXT")
+        self.npm_editor_mode_radio = QRadioButton("Edit NPM Feeder TXT")
+
         self.import_mode_radio = QRadioButton("Excel to NPM Feeder TXT")
         self.import_mode_line8_radio = QRadioButton("Excel to NPM Feeder TXT (Line 8)")
         self.group_import_mode_radio = QRadioButton("Fix Feeder Group to NPM TXT")
         self.group_import_mode_line8_radio = QRadioButton("Fix Feeder Group to NPM TXT (Line 8)")
-        self.npm_editor_mode_radio = QRadioButton("Edit NPM Feeder TXT")
+
+        self.cm602_mode_radio = QRadioButton("CM602")
+        self.cm602_program_cm_txt_mode_radio = QRadioButton("CM602 Program File Converter to CM.txt")
+        self.cm602_feeder_fix_mode_radio = QRadioButton("Excel to CM602 FeederFix TXT")
+
         self.single_mode_radio.setChecked(True)
         self.mode_group = QButtonGroup(self)
-        self.mode_group.addButton(self.single_mode_radio)
-        self.mode_group.addButton(self.multiple_mode_radio)
-        self.mode_group.addButton(self.cm602_mode_radio)
-        self.mode_group.addButton(self.cm602_program_cm_txt_mode_radio)
-        self.mode_group.addButton(self.cm602_feeder_fix_mode_radio)
-        self.mode_group.addButton(self.import_mode_radio)
-        self.mode_group.addButton(self.import_mode_line8_radio)
-        self.mode_group.addButton(self.group_import_mode_radio)
-        self.mode_group.addButton(self.group_import_mode_line8_radio)
-        self.mode_group.addButton(self.npm_editor_mode_radio)
-        self.single_mode_radio.toggled.connect(self._sync_mode_ui)
-        self.multiple_mode_radio.toggled.connect(self._sync_mode_ui)
-        self.cm602_mode_radio.toggled.connect(self._sync_mode_ui)
-        self.cm602_program_cm_txt_mode_radio.toggled.connect(self._sync_mode_ui)
-        self.cm602_feeder_fix_mode_radio.toggled.connect(self._sync_mode_ui)
-        self.import_mode_radio.toggled.connect(self._sync_mode_ui)
-        self.import_mode_line8_radio.toggled.connect(self._sync_mode_ui)
-        self.group_import_mode_radio.toggled.connect(self._sync_mode_ui)
-        self.group_import_mode_line8_radio.toggled.connect(self._sync_mode_ui)
-        self.npm_editor_mode_radio.toggled.connect(self._sync_mode_ui)
-        mode_row.addWidget(self.single_mode_radio)
-        mode_row.addWidget(self.multiple_mode_radio)
-        mode_row.addWidget(self.cm602_mode_radio)
-        mode_row.addWidget(self.cm602_program_cm_txt_mode_radio)
-        mode_row.addWidget(self.cm602_feeder_fix_mode_radio)
-        mode_row.addWidget(self.import_mode_radio)
-        mode_row.addWidget(self.import_mode_line8_radio)
-        mode_row.addWidget(self.group_import_mode_radio)
-        mode_row.addWidget(self.group_import_mode_line8_radio)
-        mode_row.addWidget(self.npm_editor_mode_radio)
-        mode_row.addStretch(1)
-        mode_card.layout.addLayout(mode_row)
+
+        radios = [
+            self.single_mode_radio,
+            self.multiple_mode_radio,
+            self.npm_editor_mode_radio,
+            self.import_mode_radio,
+            self.import_mode_line8_radio,
+            self.group_import_mode_radio,
+            self.group_import_mode_line8_radio,
+            self.cm602_mode_radio,
+            self.cm602_program_cm_txt_mode_radio,
+            self.cm602_feeder_fix_mode_radio,
+        ]
+        for rb in radios:
+            self.mode_group.addButton(rb)
+            rb.toggled.connect(self._sync_mode_ui)
+
+        # Row 0: Standard NPM Modes
+        mode_grid.addWidget(self.single_mode_radio, 0, 0)
+        mode_grid.addWidget(self.multiple_mode_radio, 0, 1)
+        mode_grid.addWidget(self.npm_editor_mode_radio, 0, 2)
+
+        # Row 1: NPM Excel Import Modes
+        mode_grid.addWidget(self.import_mode_radio, 1, 0)
+        mode_grid.addWidget(self.import_mode_line8_radio, 1, 1)
+        mode_grid.addWidget(self.group_import_mode_radio, 1, 2)
+        mode_grid.addWidget(self.group_import_mode_line8_radio, 1, 3)
+
+        # Row 2: CM602 Modes
+        mode_grid.addWidget(self.cm602_mode_radio, 2, 0)
+        mode_grid.addWidget(self.cm602_program_cm_txt_mode_radio, 2, 1)
+        mode_grid.addWidget(self.cm602_feeder_fix_mode_radio, 2, 2)
+
+        mode_card.layout.addLayout(mode_grid)
         root.addWidget(mode_card)
 
         source_card = Card()
