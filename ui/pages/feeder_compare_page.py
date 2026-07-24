@@ -68,9 +68,13 @@ class FeederComparePage(WorkerPage):
         self.mode_combo = QComboBox()
         self.mode_combo.addItems([
             "NPM vs NPM",
+            "NPM Feeder TXT vs NPM Feeder TXT",
             "NPM vs NPM Feeder TXT",
+            "Excel Feeder Mapping vs NPM Feeder TXT",
+            "Excel Feeder Mapping vs Excel Feeder Mapping",
             "CM602 vs CM602",
-            "CM602 vs CM602 Feeder TXT"
+            "CM602 vs CM602 Feeder TXT",
+            "Excel CM602 vs CM602 Feeder TXT",
         ])
         mode_layout.addWidget(mode_label)
         mode_layout.addWidget(self.mode_combo, 1)
@@ -182,7 +186,7 @@ class FeederComparePage(WorkerPage):
             self,
             title,
             "",
-            "All Supported Files (*.txt *.crb);;Text Files (*.txt);;NPM Export (*.crb);;All Files (*)",
+            "All Supported Files (*.txt *.crb *.xlsx *.xls);;Text Files (*.txt);;NPM Export (*.crb);;Excel Files (*.xlsx *.xls);;All Files (*)",
         )
         return file_path
 
@@ -208,13 +212,7 @@ class FeederComparePage(WorkerPage):
         new_path = self.new_picker.path()
         
         mode = self.mode_combo.currentText()
-        if mode == "NPM vs NPM":
-            old_parser, new_parser = "NPM", "NPM"
-        elif mode == "NPM vs NPM Feeder TXT":
-            old_parser, new_parser = "NPM", "NPM"
-        elif mode == "CM602 vs CM602":
-            old_parser, new_parser = "CM602", "CM602"
-        elif mode == "CM602 vs CM602 Feeder TXT":
+        if "CM602" in mode:
             old_parser, new_parser = "CM602", "CM602"
         else:
             old_parser, new_parser = "NPM", "NPM"

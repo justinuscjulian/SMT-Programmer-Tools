@@ -5,7 +5,14 @@ from pathlib import Path
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-from services.feeder_mapping_service import load_feeder_mapping, load_cm602_feeder_mapping
+from services.feeder_mapping_service import (
+    FeederMappingResult,
+    _clean_path,
+    _load_cm602_feeder_fix_mapping_workbook,
+    _load_import_mapping_workbook,
+    load_cm602_feeder_mapping,
+    load_feeder_mapping,
+)
 from utils.sort import natural_sort_key
 
 
@@ -47,9 +54,26 @@ class FeederCompareResult:
 
 def compare_feeder_files(old_path, new_path, old_parser="NPM", new_parser="NPM"):
     def load_mapping(path, parser_type):
+        clean_p = _clean_path(path)
+        ext = Path(clean_p).suffix.lower()
+        if ext in (".xlsx", ".xls"):
+            if parser_type == "CM602":
+                records, _ = _load_cm602_feeder_fix_mapping_workbook(clean_p)
+            else:
+                records, _ = _load_import_mapping_workbook(clean_p)
+            table_count = len({r.get("table") for r in records if r.get("table")})
+            part_count = len({r.get("part_number") for r in records if r.get("part_number")})
+            return FeederMappingResult(
+                records=records,
+                source_file=Path(clean_p).name,
+                row_count=len(records),
+                table_count=table_count,
+                part_count=part_count,
+            )
+
         if parser_type == "CM602":
-            return load_cm602_feeder_mapping(path)
-        return load_feeder_mapping(path)
+            return load_cm602_feeder_mapping(clean_p)
+        return load_feeder_mapping(clean_p)
         
     old_mapping = load_mapping(old_path, old_parser)
     new_mapping = load_mapping(new_path, new_parser)

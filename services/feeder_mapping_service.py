@@ -712,17 +712,31 @@ def _generate_npm_import_from_records(mapping_records, duplicate_rows, mapping_f
             part_key = _part_key(record["part_number"])
             if part_key not in part_lookup:
                 max_idnum += 1
-                new_row = {
-                    "IDNUM": str(max_idnum),
-                    "NAME": f'"{record["part_number"]}"',
-                    "LNAME": '"ohm"',
-                    "REELS": "1",
-                    "SKIP": "0",
-                    "NoAutoDivide": "0",
-                    "Alt": "0",
-                    "AltNum": "0",
-                    "NoArrange": "0",
-                }
+                if part_rows:
+                    template_part_header = list(part_rows[0].keys())
+                    new_row = {col: "0" for col in template_part_header}
+                    new_row["IDNUM"] = str(max_idnum)
+                    new_row["NAME"] = f'"{record["part_number"]}"'
+                    new_row["LNAME"] = '"ohm"'
+                    new_row["REELS"] = "1"
+                    new_row["SKIP"] = "0"
+                    new_row["NoAutoDivide"] = "0"
+                    new_row["Alt"] = "0"
+                    new_row["AltNum"] = "0"
+                    new_row["NoArrange"] = "0"
+                else:
+                    new_row = {
+                        "IDNUM": str(max_idnum),
+                        "NAME": f'"{record["part_number"]}"',
+                        "LNAME": '"ohm"',
+                        "REELS": "1",
+                        "SKIP": "0",
+                        "NoAutoDivide": "0",
+                        "Alt": "0",
+                        "AltNum": "0",
+                        "NoArrange": "0",
+                        "UpperLimMP": "0",
+                    }
                 part_rows.append(new_row)
                 part_lookup[part_key] = new_row
 
@@ -841,17 +855,31 @@ def _generate_npm_import_from_records_line8(mapping_records, duplicate_rows, map
         part_key = _part_key(record["part_number"])
         if part_key not in part_lookup:
             max_idnum += 1
-            new_row = {
-                "IDNUM": str(max_idnum),
-                "NAME": f'"{record["part_number"]}"',
-                "LNAME": '"ohm"',
-                "REELS": "1",
-                "SKIP": "0",
-                "NoAutoDivide": "0",
-                "Alt": "0",
-                "AltNum": "0",
-                "NoArrange": "0",
-            }
+            if part_rows:
+                template_part_header = list(part_rows[0].keys())
+                new_row = {col: "0" for col in template_part_header}
+                new_row["IDNUM"] = str(max_idnum)
+                new_row["NAME"] = f'"{record["part_number"]}"'
+                new_row["LNAME"] = '"ohm"'
+                new_row["REELS"] = "1"
+                new_row["SKIP"] = "0"
+                new_row["NoAutoDivide"] = "0"
+                new_row["Alt"] = "0"
+                new_row["AltNum"] = "0"
+                new_row["NoArrange"] = "0"
+            else:
+                new_row = {
+                    "IDNUM": str(max_idnum),
+                    "NAME": f'"{record["part_number"]}"',
+                    "LNAME": '"ohm"',
+                    "REELS": "1",
+                    "SKIP": "0",
+                    "NoAutoDivide": "0",
+                    "Alt": "0",
+                    "AltNum": "0",
+                    "NoArrange": "0",
+                    "UpperLimMP": "0",
+                }
             part_rows.append(new_row)
             part_lookup[part_key] = new_row
 
@@ -1892,12 +1920,10 @@ def _read_section_rows(lines, section_name, machine_label="NPM"):
         if not line.strip():
             continue
         values = _split_line(line, section_name, line_number, machine_label)
-        if len(values) != len(header):
-            raise ServiceError(
-                f"Jumlah kolom tidak sesuai di [{section_name}] line {line_number}.\n"
-                f"Expected {len(header)}, got {len(values)}.",
-                title=f"Format {machine_label} tidak valid",
-            )
+        if len(values) < len(header):
+            values = values + ["0"] * (len(header) - len(values))
+        elif len(values) > len(header):
+            values = values[: len(header)]
         rows.append(dict(zip(header, values)))
     return rows
 
