@@ -516,6 +516,11 @@ def _process_and_split_group(raw_group, group_label, models, master, global_vm, 
             continue
         best_slot = None
         for loc, occupant in slot_mapping.items():
+            # Minimize substitute slots on General Tables:
+            # Only allow substitute slots on Special Tables (Table 7 & 9 for Line 1-7/Line 5, Table 5 & 7 for Line 8)
+            if not _is_special_table(loc, line_type):
+                continue
+
             parsed_loc = vm._parse_loc(loc)
             if not parsed_loc or parsed_loc[0] not in valid_tables:
                 continue
