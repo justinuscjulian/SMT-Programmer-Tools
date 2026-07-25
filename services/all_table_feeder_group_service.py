@@ -782,12 +782,6 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
                     global_vm.add(loc)
                     global_slot_mapping[loc] = part
                     placed_slots.append(loc)
-                else:
-                    fallback = global_vm.find_fallback(loc)
-                    if fallback:
-                        global_vm.add(fallback)
-                        global_slot_mapping[fallback] = part
-                        placed_slots.append(fallback)
             if placed_slots:
                 global_part_mapping[part] = placed_slots[0]
             else:
@@ -809,14 +803,6 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
                     global_part_mapping[part] = loc
                     placed = True
                     break
-                else:
-                    fallback = global_vm.find_fallback(loc)
-                    if fallback:
-                        global_vm.add(fallback)
-                        global_slot_mapping[fallback] = part
-                        global_part_mapping[part] = fallback
-                        placed = True
-                        break
             if not placed:
                 global_unassigned.append(part)
     
