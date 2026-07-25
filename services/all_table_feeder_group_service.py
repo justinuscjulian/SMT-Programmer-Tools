@@ -763,11 +763,9 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
             continue
         loc_list = sorted(loc_list, key=lambda x: x["frequency"], reverse=True)
 
-        primary_loc_check = loc_list[0]["location"] if loc_list else ""
-        if _is_special_table(primary_loc_check, line_type):
-            # Special tables (7 & 9 for Line 1-7, 5 & 7 for Line 8) are excluded from Global Lock
-            # They are locked at the Local Group level instead to guarantee 0% skipped components.
-            continue
+        # All shared components (including those on Special Tables) 
+        # are globally locked here (Tier 1A & Tier 1B).
+        # Unshared components will fall through to Local Group Lock (Tier 2).
 
         # Check global average inserts for balancing
         inserts_total = sum(model.insert_averages.get(part, 0) for model in models.values())
