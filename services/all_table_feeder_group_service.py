@@ -160,19 +160,6 @@ class GroupResult:
         self.unassigned_parts = unassigned_parts or []
         self.substitute_mapping = substitute_mapping or {}
 
-
-def _is_special_table(loc_str, line_type):
-    if not loc_str:
-        return False
-    match = re.match(r"^\[(\d+)\]", str(loc_str))
-    if not match:
-        return False
-    table_num = int(match.group(1))
-    if line_type == "Line 8":
-        return table_num in (5, 7)
-    else:
-        return table_num in (7, 9)
-
 def get_master_mapping(excel_path, line_type=None):
     wb = load_workbook(excel_path, read_only=True, data_only=True)
     ws = wb.active
@@ -392,95 +379,43 @@ def _process_and_split_group(raw_group, group_label, models, master, global_vm, 
                 unique.append(loc)
         return unique
 
-    # Strategy 2: Multi-Hop Recursive Chain Swap (Preserves Parent-Group Shared Lock)
-    protected_parts = placed_global_parts | set(global_slot_mapping.values()) | set(global_part_mapping.keys())
-
-    def _find_chain_swap(target_part, curr_vm, curr_slots, visited=None, depth=0, max_depth=6):
-        if depth > max_depth:
-            return None
-        if visited is None:
-            visited = set()
-        if target_part in visited:
-            return None
-        visited.add(target_part)
-
-        valid_locs = _get_valid_locs(target_part)
-        if not valid_locs:
-            return None
-
-        # Option 1: Direct placement in an empty valid slot
-        for loc in valid_locs:
-            if loc not in curr_slots and curr_vm.can_add(loc):
-                return [(target_part, None, loc)]
-
-        # Option 2A: Swap non-protected occupant first
-        for loc in valid_locs:
-            if loc not in curr_slots:
-                continue
-            occ = curr_slots[loc]
-            if occ in protected_parts or occ in visited:
-                continue
-
-            temp_vm = curr_vm.copy()
-            temp_vm.remove(loc)
-            temp_slots = curr_slots.copy()
-            del temp_slots[loc]
-
-            sub_chain = _find_chain_swap(occ, temp_vm, temp_slots, visited.copy(), depth + 1, max_depth)
-            if sub_chain:
-                return [(target_part, occ, loc)] + sub_chain
-
-        # Option 2B: Swap protected occupant if non-protected swap failed (Master Mapping priority)
-        for loc in valid_locs:
-            if loc not in curr_slots:
-                continue
-            occ = curr_slots[loc]
-            if occ in visited:
-                continue
-
-            temp_vm = curr_vm.copy()
-            temp_vm.remove(loc)
-            temp_slots = curr_slots.copy()
-            del temp_slots[loc]
-
-            sub_chain = _find_chain_swap(occ, temp_vm, temp_slots, visited.copy(), depth + 1, max_depth)
-            if sub_chain:
-                return [(target_part, occ, loc)] + sub_chain
-
-        return None
-
     swap_resolved = []
     for part in unassigned_parts:
-        chain = _find_chain_swap(part, vm, slot_mapping)
-        if chain:
-            backup_vm = vm.copy()
-            backup_slots = slot_mapping.copy()
-            backup_parts = part_mapping.copy()
-            try:
-                for step_part, step_occ, target_loc in chain:
-                    if step_occ and target_loc in slot_mapping:
-                        vm.remove(target_loc)
-                        del slot_mapping[target_loc]
-
-                for step_part, step_occ, target_loc in chain:
-                    if vm.can_add(target_loc):
-                        vm.add(target_loc)
-                        slot_mapping[target_loc] = step_part
-                        part_mapping[step_part] = target_loc
-                    else:
-                        fallback = vm.find_fallback(target_loc)
-                        if fallback:
-                            vm.add(fallback)
-                            slot_mapping[fallback] = step_part
-                            part_mapping[step_part] = fallback
-                        else:
-                            raise ValueError(f"Cannot add {target_loc}")
-            except Exception:
-                vm = backup_vm
-                slot_mapping = backup_slots
-                part_mapping = backup_parts
-                swap_resolved.append(part)
-        else:
+        valid_locs = _get_valid_locs(part)
+        if not valid_locs:
+            swap_resolved.append(part)
+            continue
+        swapped = False
+        for loc in valid_locs:
+            if loc not in slot_mapping and vm.can_add(loc):
+                vm.add(loc)
+                slot_mapping[loc] = part
+                part_mapping[part] = loc
+                swapped = True
+                break
+            if loc not in slot_mapping:
+                continue
+            occupant = slot_mapping[loc]
+            if occupant in placed_global_parts:
+                continue
+            occupant_valid = _get_valid_locs(occupant)
+            for occ_alt in occupant_valid:
+                if occ_alt == loc or occ_alt in slot_mapping:
+                    continue
+                if vm.can_add(occ_alt):
+                    vm.remove(loc)
+                    vm.add(occ_alt)
+                    vm.add(loc)
+                    del slot_mapping[loc]
+                    slot_mapping[occ_alt] = occupant
+                    slot_mapping[loc] = part
+                    part_mapping[occupant] = occ_alt
+                    part_mapping[part] = loc
+                    swapped = True
+                    break
+            if swapped:
+                break
+        if not swapped:
             swap_resolved.append(part)
 
     unassigned_parts = swap_resolved
@@ -529,10 +464,7 @@ def _process_and_split_group(raw_group, group_label, models, master, global_vm, 
             final_unassigned.append(part)
             continue
         best_slot = None
-        # Pass 1: Try Special Tables first for substitute slots (Table 7 & 9 for Line 1-7/Line 5, Table 5 & 7 for Line 8)
         for loc, occupant in slot_mapping.items():
-            if not _is_special_table(loc, line_type):
-                continue
             parsed_loc = vm._parse_loc(loc)
             if not parsed_loc or parsed_loc[0] not in valid_tables:
                 continue
@@ -545,23 +477,6 @@ def _process_and_split_group(raw_group, group_label, models, master, global_vm, 
             if not (part_vars & blocked_vars):
                 best_slot = loc
                 break
-        
-        # Pass 2: Fallback to General Tables if Special Tables are full (Guarantees 0% Skipped Components)
-        if not best_slot:
-            for loc, occupant in slot_mapping.items():
-                parsed_loc = vm._parse_loc(loc)
-                if not parsed_loc or parsed_loc[0] not in valid_tables:
-                    continue
-                loc_span = parsed_loc[2] - parsed_loc[1] + 1
-                if part_spans and loc_span not in part_spans:
-                    continue
-                occupant_vars = variant_usage.get(occupant, set())
-                existing_sub_vars = slot_sub_vars.get(loc, set())
-                blocked_vars = occupant_vars | existing_sub_vars
-                if not (part_vars & blocked_vars):
-                    best_slot = loc
-                    break
-
         if best_slot:
             if best_slot not in substitute_mapping:
                 substitute_mapping[best_slot] = []
@@ -743,29 +658,25 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
     
     total_groups = len(raw_groups)
 
-    # Phase 1: Determine Global Base Components (parts used across multiple groups, count >= 2)
-    part_group_counts = {}
+    # Phase 1: Determine Global Base Components (parts used across ALL groups)
+    group_parts_sets = []
     for raw_group in raw_groups:
         parts_in_g = set()
         for pcb_name in raw_group:
             m = models[pcb_name]
             parts_in_g.update(set(str(val).strip().upper() for val in m.components.values() if val))
-        for part in parts_in_g:
-            part_group_counts[part] = part_group_counts.get(part, 0) + 1
+        group_parts_sets.append(parts_in_g)
         
-    if len(raw_groups) > 1:
-        global_base_parts = {part for part, count in part_group_counts.items() if count >= 2}
-    elif len(raw_groups) == 1:
+    global_base_parts = set()
+    if len(group_parts_sets) > 1:
+        global_base_parts = set.intersection(*group_parts_sets)
+    elif len(group_parts_sets) == 1:
         all_pcb_sets = []
         for pcb_name in raw_groups[0]:
             m = models[pcb_name]
             all_pcb_sets.append(set(str(val).strip().upper() for val in m.components.values() if val))
         if all_pcb_sets:
             global_base_parts = set.intersection(*all_pcb_sets)
-        else:
-            global_base_parts = set()
-    else:
-        global_base_parts = set()
 
     # Phase 2: Lock Global Base Components to identical slots across all groups
     global_vm = VirtualMachine(line_type=line_type)
@@ -783,7 +694,7 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
         if num_options == 0:
             num_options = 999
         master_freq = max([item["frequency"] for item in loc_list], default=0)
-        return (-part_group_counts.get(p, 0), num_options, -master_freq)
+        return (num_options, -master_freq)
 
     sorted_global_base = sorted(list(global_base_parts), key=_global_sort_key)
 
@@ -796,10 +707,6 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
             global_unassigned.append(part)
             continue
         loc_list = sorted(loc_list, key=lambda x: x["frequency"], reverse=True)
-
-        # All shared components (including those on Special Tables) 
-        # are globally locked here (Tier 1A & Tier 1B).
-        # Unshared components will fall through to Local Group Lock (Tier 2).
 
         # Check global average inserts for balancing
         inserts_total = sum(model.insert_averages.get(part, 0) for model in models.values())
@@ -816,6 +723,12 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
                     global_vm.add(loc)
                     global_slot_mapping[loc] = part
                     placed_slots.append(loc)
+                else:
+                    fallback = global_vm.find_fallback(loc)
+                    if fallback:
+                        global_vm.add(fallback)
+                        global_slot_mapping[fallback] = part
+                        placed_slots.append(fallback)
             if placed_slots:
                 global_part_mapping[part] = placed_slots[0]
             else:
@@ -837,6 +750,14 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
                     global_part_mapping[part] = loc
                     placed = True
                     break
+                else:
+                    fallback = global_vm.find_fallback(loc)
+                    if fallback:
+                        global_vm.add(fallback)
+                        global_slot_mapping[fallback] = part
+                        global_part_mapping[part] = fallback
+                        placed = True
+                        break
             if not placed:
                 global_unassigned.append(part)
     
