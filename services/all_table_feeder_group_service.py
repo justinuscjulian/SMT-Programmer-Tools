@@ -249,7 +249,7 @@ def _bipartition_pcbs(raw_group, models):
     return sub1, sub2
 
 
-def _process_and_split_group(raw_group, group_label, models, master, global_vm, global_slot_mapping, global_part_mapping, global_unassigned, line_type):
+def _process_and_split_group(raw_group, group_label, models, master, global_vm, global_slot_mapping, global_part_mapping, global_unassigned, line_type, cross_group_count=None):
     group_pcbs = []
     for pcb_name in raw_group:
         model = models[pcb_name]
@@ -289,9 +289,12 @@ def _process_and_split_group(raw_group, group_label, models, master, global_vm, 
             num_options += len(item.get("alternatives", []))
         if num_options == 0:
             num_options = 999
+        # cross_group_count: how many top-level groups use this part (cross-group priority)
+        cgc = (cross_group_count or {}).get(p, 0)
         v_count = len(variant_usage.get(p, set()))
         master_freq = max([item["frequency"] for item in loc_list], default=0)
-        return (-v_count, num_options, -master_freq)
+        # CGC is the highest priority: parts shared across more groups claim canonical slots first
+        return (-cgc, -v_count, num_options, -master_freq)
 
     group_all_parts = set(variant_usage.keys())
     sorted_parts = sorted(list(group_all_parts), key=part_sort_key)
@@ -397,6 +400,10 @@ def _process_and_split_group(raw_group, group_label, models, master, global_vm, 
                 continue
             occupant = slot_mapping[loc]
             if occupant in placed_global_parts:
+                continue
+            # Chain Swap Protection: don't displace a component with higher CGC
+            cgc_map = cross_group_count or {}
+            if cgc_map.get(occupant, 0) > cgc_map.get(part, 0):
                 continue
             occupant_valid = _get_valid_locs(occupant)
             for occ_alt in occupant_valid:
@@ -659,13 +666,17 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
     total_groups = len(raw_groups)
 
     # Phase 1: Determine Global Base Components (parts used across ALL groups)
+    # Also compute cross_group_count: how many top-level groups use each part
     group_parts_sets = []
+    cross_group_count = {}  # {part: number of top-level groups that use this part}
     for raw_group in raw_groups:
         parts_in_g = set()
         for pcb_name in raw_group:
             m = models[pcb_name]
             parts_in_g.update(set(str(val).strip().upper() for val in m.components.values() if val))
         group_parts_sets.append(parts_in_g)
+        for part in parts_in_g:
+            cross_group_count[part] = cross_group_count.get(part, 0) + 1
         
     global_base_parts = set()
     if len(group_parts_sets) > 1:
@@ -763,7 +774,7 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
     
     for i, raw_group in enumerate(raw_groups):
         label = f"Group {i + 1}"
-        sub_results = _process_and_split_group(raw_group, label, models, master, global_vm, global_slot_mapping, global_part_mapping, global_unassigned, line_type)
+        sub_results = _process_and_split_group(raw_group, label, models, master, global_vm, global_slot_mapping, global_part_mapping, global_unassigned, line_type, cross_group_count)
         groups.extend(sub_results)
         
         percent = 60 + int((i + 1) / max(1, total_groups) * 35)
