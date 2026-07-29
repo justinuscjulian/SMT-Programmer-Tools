@@ -181,8 +181,6 @@ class NpmFeederImportBatchResult:
     group_results: list
     total_groups: int
     successful_groups: int
-    substitute_results: list = None      # NPM TXT files for substitute components
-    total_substitute_files: int = 0      # number of _SUB.txt files generated
 
 
 
@@ -514,7 +512,6 @@ def generate_npm_feeder_import_batch_from_groups(mapping_path, template_path, ou
                             group_pcbs[g_name].append(p_name)
 
     group_results = []
-    substitute_results = []
 
     for worksheet in workbook.worksheets:
         if worksheet.title.lower() in {"summary", "summary sheet"}:
@@ -531,38 +528,20 @@ def generate_npm_feeder_import_batch_from_groups(mapping_path, template_path, ou
         else:
             raw_filename = sheet_title
 
-        clean_filename = re.sub(r'[\\/*?"<>|]', '_', raw_filename).strip()
+        clean_filename = re.sub(r'[\\/*?:"<>|]', '_', raw_filename).strip()
         if not clean_filename:
             clean_filename = sheet_title
 
-        # Split FIXED and SUBSTITUTE records
-        fixed_records = [r for r in records if r.get("record_type", "FIXED") != "SUBSTITUTE"]
-        sub_records = [r for r in records if r.get("record_type", "") == "SUBSTITUTE"]
-
-        # Generate main NPM TXT (FIXED components)
         out_txt_path = output_dir / f"{clean_filename}.txt"
+
         res = _generate_npm_import_from_records(
-            mapping_records=fixed_records,
+            mapping_records=records,
             duplicate_rows=duplicates,
             mapping_file_name=mapping_file.name,
             template_path=template_path,
             output_path=out_txt_path,
         )
         group_results.append(res)
-
-        # Generate substitute NPM TXT (_SUB.txt) using khusus_sub method if substitute records exist
-        if sub_records:
-            from services import feeder_mapping_service_khusus_sub
-            sub_txt_path = output_dir / f"{clean_filename}_SUB.txt"
-            sub_res = feeder_mapping_service_khusus_sub._generate_npm_import_from_records(
-                mapping_records=sub_records,
-                duplicate_rows=[],
-                mapping_file_name=mapping_file.name,
-                template_path=template_path,
-                output_path=sub_txt_path,
-                allow_slot_conflict=True,
-            )
-            substitute_results.append(sub_res)
 
     workbook.close()
 
@@ -578,19 +557,7 @@ def generate_npm_feeder_import_batch_from_groups(mapping_path, template_path, ou
         group_results=group_results,
         total_groups=len(group_results),
         successful_groups=len(group_results),
-        substitute_results=substitute_results,
-        total_substitute_files=len(substitute_results),
     )
-
-
-def generate_npm_feeder_import_file_khusus_sub(mapping_path, template_path, output_path):
-    from services import feeder_mapping_service_khusus_sub
-    return feeder_mapping_service_khusus_sub.generate_npm_feeder_import_file(mapping_path, template_path, output_path)
-
-
-def generate_npm_feeder_import_batch_from_groups_khusus_sub(mapping_path, template_path, output_dir_path):
-    from services import feeder_mapping_service_khusus_sub
-    return feeder_mapping_service_khusus_sub.generate_npm_feeder_import_batch_from_groups(mapping_path, template_path, output_dir_path)
 
 
 def generate_npm_feeder_import_file_line8(mapping_path, template_path, output_path):
@@ -670,7 +637,6 @@ def generate_npm_feeder_import_batch_from_groups_line8(mapping_path, template_pa
                             group_pcbs[g_name].append(p_name)
 
     group_results = []
-    substitute_results = []
 
     for worksheet in workbook.worksheets:
         if worksheet.title.lower() in {"summary", "summary sheet"}:
@@ -691,34 +657,16 @@ def generate_npm_feeder_import_batch_from_groups_line8(mapping_path, template_pa
         if not clean_filename:
             clean_filename = sheet_title
 
-        # Split FIXED and SUBSTITUTE records
-        fixed_records = [r for r in records if r.get("record_type", "FIXED") != "SUBSTITUTE"]
-        sub_records = [r for r in records if r.get("record_type", "") == "SUBSTITUTE"]
-
-        # Generate main NPM TXT (FIXED components)
         out_txt_path = output_dir / f"{clean_filename}.txt"
+
         res = _generate_npm_import_from_records_line8(
-            mapping_records=fixed_records,
+            mapping_records=records,
             duplicate_rows=duplicates,
             mapping_file_name=mapping_file.name,
             template_path=template_path,
             output_path=out_txt_path,
         )
         group_results.append(res)
-
-        # Generate substitute NPM TXT (_SUB.txt) using khusus_sub method if substitute records exist
-        if sub_records:
-            from services import feeder_mapping_service_khusus_sub
-            sub_txt_path = output_dir / f"{clean_filename}_SUB.txt"
-            sub_res = feeder_mapping_service_khusus_sub._generate_npm_import_from_records_line8(
-                mapping_records=sub_records,
-                duplicate_rows=[],
-                mapping_file_name=mapping_file.name,
-                template_path=template_path,
-                output_path=sub_txt_path,
-                allow_slot_conflict=True,
-            )
-            substitute_results.append(sub_res)
 
     workbook.close()
 
@@ -734,8 +682,6 @@ def generate_npm_feeder_import_batch_from_groups_line8(mapping_path, template_pa
         group_results=group_results,
         total_groups=len(group_results),
         successful_groups=len(group_results),
-        substitute_results=substitute_results,
-        total_substitute_files=len(substitute_results),
     )
 
 
@@ -1604,7 +1550,7 @@ def _part_feeder_candidates(part_row, feeder_lookup):
 def _empty_fixed_import_row(row):
     output = dict(row)
     for side in FIXED_FEEDER_SIDES:
-        output[f"Feeder{side}"] = "-1" if side in {"A", "B"} else "0"
+        output[f"Feeder{side}"] = "0"
         output[f"Parts{side}"] = "0"
     return output
 
@@ -1623,6 +1569,10 @@ def _set_fixed_import_assignment(row, side, feeder_id, part_id, uses_lr_position
 
     row[f"Feeder{side}"] = str(feeder_id)
     row[f"Parts{side}"] = str(part_id)
+
+    other_side = "B" if side == "A" else "A"
+    row[f"Feeder{other_side}"] = "0"
+    row[f"Parts{other_side}"] = "0"
 
 
 def _import_occupied_keys(record):
@@ -2679,7 +2629,7 @@ def _fixed_row_assignments(row, part_lookup, feeder_lookup):
 def _empty_fixed_row(row):
     output = dict(row)
     for side in FIXED_FEEDER_SIDES:
-        output[f"Feeder{side}"] = "-1"
+        output[f"Feeder{side}"] = "0"
         output[f"Parts{side}"] = "0"
     return output
 
