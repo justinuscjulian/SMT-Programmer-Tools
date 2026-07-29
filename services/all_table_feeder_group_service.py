@@ -152,13 +152,14 @@ class PcbInfo:
 
 
 class GroupResult:
-    def __init__(self, group_name, pcbs, slot_mapping, part_mapping, unassigned_parts=None, substitute_mapping=None):
+    def __init__(self, group_name, pcbs, slot_mapping, part_mapping, unassigned_parts=None, substitute_mapping=None, master_excel_path=None):
         self.group_name = group_name
         self.pcbs = pcbs
         self.slot_mapping = slot_mapping
         self.part_mapping = part_mapping
         self.unassigned_parts = unassigned_parts or []
         self.substitute_mapping = substitute_mapping or {}
+        self.master_excel_path = master_excel_path
 
 def get_master_mapping(excel_path, line_type=None):
     wb = load_workbook(excel_path, read_only=True, data_only=True)
@@ -249,7 +250,7 @@ def _bipartition_pcbs(raw_group, models):
     return sub1, sub2
 
 
-def _process_and_split_group(raw_group, group_label, models, master, global_vm, global_slot_mapping, global_part_mapping, global_unassigned, line_type, cross_group_count=None):
+def _process_and_split_group(raw_group, group_label, models, master, global_vm, global_slot_mapping, global_part_mapping, global_unassigned, line_type, cross_group_count=None, master_excel_path=None):
     group_pcbs = []
     for pcb_name in raw_group:
         model = models[pcb_name]
@@ -588,8 +589,8 @@ def _process_and_split_group(raw_group, group_label, models, master, global_vm, 
 
         label1 = f"{group_label}A" if not group_label[-1].isalpha() else f"{group_label}-1"
         label2 = f"{group_label}B" if not group_label[-1].isalpha() else f"{group_label}-2"
-        res1 = _process_and_split_group(sub1, label1, models, master, parent_vm, parent_slot_mapping, parent_part_mapping, parent_unassigned, line_type, cross_group_count)
-        res2 = _process_and_split_group(sub2, label2, models, master, parent_vm, parent_slot_mapping, parent_part_mapping, parent_unassigned, line_type, cross_group_count)
+        res1 = _process_and_split_group(sub1, label1, models, master, parent_vm, parent_slot_mapping, parent_part_mapping, parent_unassigned, line_type, cross_group_count, master_excel_path)
+        res2 = _process_and_split_group(sub2, label2, models, master, parent_vm, parent_slot_mapping, parent_part_mapping, parent_unassigned, line_type, cross_group_count, master_excel_path)
         return res1 + res2
 
     return [GroupResult(
@@ -598,7 +599,8 @@ def _process_and_split_group(raw_group, group_label, models, master, global_vm, 
         slot_mapping=slot_mapping,
         part_mapping=part_mapping,
         unassigned_parts=unassigned_parts,
-        substitute_mapping=substitute_mapping
+        substitute_mapping=substitute_mapping,
+        master_excel_path=master_excel_path,
     )]
 
 
@@ -779,7 +781,7 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
     
     for i, raw_group in enumerate(raw_groups):
         label = f"Group {i + 1}"
-        sub_results = _process_and_split_group(raw_group, label, models, master, global_vm, global_slot_mapping, global_part_mapping, global_unassigned, line_type, cross_group_count)
+        sub_results = _process_and_split_group(raw_group, label, models, master, global_vm, global_slot_mapping, global_part_mapping, global_unassigned, line_type, cross_group_count, master_excel_path)
         groups.extend(sub_results)
         
         percent = 60 + int((i + 1) / max(1, total_groups) * 35)
@@ -788,9 +790,40 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
     _emit_progress(progress_callback, 100, "Selesai")
     return groups
 
-def export_all_table_groups(groups, output_path):
+def _load_raw_master_locs(excel_path):
+    if not excel_path or not Path(excel_path).is_file():
+        return {}
+    try:
+        wb = load_workbook(excel_path, read_only=True, data_only=True)
+        ws = wb.active
+        headers = [str(cell.value).strip() if cell.value else "" for cell in ws[1]]
+        if "Part Number" not in headers or "Feeder Paling Sering" not in headers:
+            wb.close()
+            return {}
+        idx_part = headers.index("Part Number")
+        idx_loc = headers.index("Feeder Paling Sering")
+        raw_locs = {}
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if not row or len(row) <= max(idx_part, idx_loc) or not row[idx_part]:
+                continue
+            part = str(row[idx_part]).strip().upper()
+            loc = str(row[idx_loc]).strip() if row[idx_loc] else ""
+            if part not in raw_locs:
+                raw_locs[part] = loc
+        wb.close()
+        return raw_locs
+    except Exception:
+        return {}
+
+
+def export_all_table_groups(groups, output_path, master_excel_path=None):
     wb = Workbook()
     
+    if not master_excel_path and groups and getattr(groups[0], "master_excel_path", None):
+        master_excel_path = groups[0].master_excel_path
+
+    raw_master_locs = _load_raw_master_locs(master_excel_path)
+
     ws_summary = wb.active
     ws_summary.title = "Summary"
     ws_summary.append(["Group Name", "PCB Name", "Total PCBs in Group", "Total Fixed Slots", "Total Substitute Components", "Total Skipped Components"])
@@ -798,9 +831,22 @@ def export_all_table_groups(groups, output_path):
     link_font = Font(name="Calibri", size=11, color="0002D9", underline="single")
 
     for g in groups:
+        # Filter unassigned parts to exclude Table [10] (TRAY) components
+        display_unassigned = []
+        for p in g.unassigned_parts:
+            if p in raw_master_locs:
+                loc = raw_master_locs[p]
+                if "[10]" in loc or loc.startswith("[10]"):
+                    continue  # Skip Table 10 (TRAY) components completely
+                display_unassigned.append((p, loc if loc else "#N/A"))
+            else:
+                display_unassigned.append((p, "#N/A"))
+
+        g._display_unassigned = display_unassigned
+
         for p in g.pcbs:
             total_subs = sum(len(subs) for subs in g.substitute_mapping.values())
-            row = [g.group_name, p.part_number, len(g.pcbs), len(g.slot_mapping), total_subs, len(g.unassigned_parts)]
+            row = [g.group_name, p.part_number, len(g.pcbs), len(g.slot_mapping), total_subs, len(display_unassigned)]
             ws_summary.append(row)
             summary_row_idx = ws_summary.max_row
             
@@ -950,13 +996,25 @@ def export_all_table_groups(groups, output_path):
         for r in records:
             ws.append([r["table"], r["slot"], r["pos"], r["loc"], r["part"], r["type"], r["active_when"]])
             
-        # Write truly unresolvable skipped parts at the bottom
-        if g.unassigned_parts:
+        # Write truly unresolvable skipped parts at the bottom (excluding TRAY components)
+        display_unassigned = getattr(g, "_display_unassigned", None)
+        if display_unassigned is None:
+            display_unassigned = []
+            for p in g.unassigned_parts:
+                if p in raw_master_locs:
+                    loc = raw_master_locs[p]
+                    if "[10]" in loc or loc.startswith("[10]"):
+                        continue
+                    display_unassigned.append((p, loc if loc else "#N/A"))
+                else:
+                    display_unassigned.append((p, "#N/A"))
+
+        if display_unassigned:
             ws.append([])
             ws.append(["SKIPPED / TRULY UNRESOLVABLE COMPONENTS:"])
-            ws.append(["Part Number"])
-            for p in g.unassigned_parts:
-                ws.append([p])
+            ws.append(["Part Number", "Feeder Paling Sering"])
+            for p, loc in display_unassigned:
+                ws.append([p, loc])
             
         ws.column_dimensions['D'].width = 15
         ws.column_dimensions['E'].width = 25

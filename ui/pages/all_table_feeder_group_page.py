@@ -207,7 +207,7 @@ class AllTableFeederGroupPage(WorkerPage):
             return
 
         try:
-            saved_path = export_all_table_groups(self.groups_result, output_path)
+            saved_path = export_all_table_groups(self.groups_result, output_path, master_excel_path=self.master_picker.path())
         except Exception as exc:
             QMessageBox.warning(self, "Export gagal", str(exc))
             return
