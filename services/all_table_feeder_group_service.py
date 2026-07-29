@@ -680,9 +680,10 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
         for part in parts_in_g:
             cross_group_count[part] = cross_group_count.get(part, 0) + 1
         
+    # global_base_parts: all parts that appear in 2+ top-level groups → lock to canonical slot globally
     global_base_parts = set()
-    if len(group_parts_sets) > 1:
-        global_base_parts = set.intersection(*group_parts_sets)
+    if len(raw_groups) > 1:
+        global_base_parts = {part for part, count in cross_group_count.items() if count >= 2}
     elif len(group_parts_sets) == 1:
         all_pcb_sets = []
         for pcb_name in raw_groups[0]:
@@ -706,8 +707,10 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
             num_options += len(item.get("alternatives", []))
         if num_options == 0:
             num_options = 999
+        # CGC first: lock highest-cross-group components to canonical slots before others
+        cgc = cross_group_count.get(p, 0)
         master_freq = max([item["frequency"] for item in loc_list], default=0)
-        return (num_options, -master_freq)
+        return (-cgc, num_options, -master_freq)
 
     sorted_global_base = sorted(list(global_base_parts), key=_global_sort_key)
 
@@ -736,12 +739,7 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
                     global_vm.add(loc)
                     global_slot_mapping[loc] = part
                     placed_slots.append(loc)
-                else:
-                    fallback = global_vm.find_fallback(loc)
-                    if fallback:
-                        global_vm.add(fallback)
-                        global_slot_mapping[fallback] = part
-                        placed_slots.append(fallback)
+                # No fallback: only canonical/listed slots (no drifting to adjacent slots)
             if placed_slots:
                 global_part_mapping[part] = placed_slots[0]
             else:
@@ -763,14 +761,7 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
                     global_part_mapping[part] = loc
                     placed = True
                     break
-                else:
-                    fallback = global_vm.find_fallback(loc)
-                    if fallback:
-                        global_vm.add(fallback)
-                        global_slot_mapping[fallback] = part
-                        global_part_mapping[part] = fallback
-                        placed = True
-                        break
+                # No fallback: if canonical and alternatives are taken, fall to local processing
             if not placed:
                 global_unassigned.append(part)
     
