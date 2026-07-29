@@ -181,6 +181,8 @@ class NpmFeederImportBatchResult:
     group_results: list
     total_groups: int
     successful_groups: int
+    substitute_results: list = None      # NPM TXT files for substitute components
+    total_substitute_files: int = 0      # number of _SUB.txt files generated
 
 
 
@@ -512,6 +514,7 @@ def generate_npm_feeder_import_batch_from_groups(mapping_path, template_path, ou
                             group_pcbs[g_name].append(p_name)
 
     group_results = []
+    substitute_results = []
 
     for worksheet in workbook.worksheets:
         if worksheet.title.lower() in {"summary", "summary sheet"}:
@@ -528,20 +531,37 @@ def generate_npm_feeder_import_batch_from_groups(mapping_path, template_path, ou
         else:
             raw_filename = sheet_title
 
-        clean_filename = re.sub(r'[\\/*?:"<>|]', '_', raw_filename).strip()
+        clean_filename = re.sub(r'[\\/*?"<>|]', '_', raw_filename).strip()
         if not clean_filename:
             clean_filename = sheet_title
 
-        out_txt_path = output_dir / f"{clean_filename}.txt"
+        # Split FIXED and SUBSTITUTE records
+        fixed_records = [r for r in records if r.get("record_type", "FIXED") != "SUBSTITUTE"]
+        sub_records = [r for r in records if r.get("record_type", "") == "SUBSTITUTE"]
 
+        # Generate main NPM TXT (FIXED components)
+        out_txt_path = output_dir / f"{clean_filename}.txt"
         res = _generate_npm_import_from_records(
-            mapping_records=records,
+            mapping_records=fixed_records,
             duplicate_rows=duplicates,
             mapping_file_name=mapping_file.name,
             template_path=template_path,
             output_path=out_txt_path,
         )
         group_results.append(res)
+
+        # Generate substitute NPM TXT (_SUB.txt) if substitute records exist
+        if sub_records:
+            sub_txt_path = output_dir / f"{clean_filename}_SUB.txt"
+            sub_res = _generate_npm_import_from_records(
+                mapping_records=sub_records,
+                duplicate_rows=[],
+                mapping_file_name=mapping_file.name,
+                template_path=template_path,
+                output_path=sub_txt_path,
+                allow_slot_conflict=True,
+            )
+            substitute_results.append(sub_res)
 
     workbook.close()
 
@@ -557,6 +577,8 @@ def generate_npm_feeder_import_batch_from_groups(mapping_path, template_path, ou
         group_results=group_results,
         total_groups=len(group_results),
         successful_groups=len(group_results),
+        substitute_results=substitute_results,
+        total_substitute_files=len(substitute_results),
     )
 
 
@@ -637,6 +659,7 @@ def generate_npm_feeder_import_batch_from_groups_line8(mapping_path, template_pa
                             group_pcbs[g_name].append(p_name)
 
     group_results = []
+    substitute_results = []
 
     for worksheet in workbook.worksheets:
         if worksheet.title.lower() in {"summary", "summary sheet"}:
@@ -657,16 +680,33 @@ def generate_npm_feeder_import_batch_from_groups_line8(mapping_path, template_pa
         if not clean_filename:
             clean_filename = sheet_title
 
-        out_txt_path = output_dir / f"{clean_filename}.txt"
+        # Split FIXED and SUBSTITUTE records
+        fixed_records = [r for r in records if r.get("record_type", "FIXED") != "SUBSTITUTE"]
+        sub_records = [r for r in records if r.get("record_type", "") == "SUBSTITUTE"]
 
+        # Generate main NPM TXT (FIXED components)
+        out_txt_path = output_dir / f"{clean_filename}.txt"
         res = _generate_npm_import_from_records_line8(
-            mapping_records=records,
+            mapping_records=fixed_records,
             duplicate_rows=duplicates,
             mapping_file_name=mapping_file.name,
             template_path=template_path,
             output_path=out_txt_path,
         )
         group_results.append(res)
+
+        # Generate substitute NPM TXT (_SUB.txt) if substitute records exist
+        if sub_records:
+            sub_txt_path = output_dir / f"{clean_filename}_SUB.txt"
+            sub_res = _generate_npm_import_from_records_line8(
+                mapping_records=sub_records,
+                duplicate_rows=[],
+                mapping_file_name=mapping_file.name,
+                template_path=template_path,
+                output_path=sub_txt_path,
+                allow_slot_conflict=True,
+            )
+            substitute_results.append(sub_res)
 
     workbook.close()
 
@@ -682,10 +722,12 @@ def generate_npm_feeder_import_batch_from_groups_line8(mapping_path, template_pa
         group_results=group_results,
         total_groups=len(group_results),
         successful_groups=len(group_results),
+        substitute_results=substitute_results,
+        total_substitute_files=len(substitute_results),
     )
 
 
-def _generate_npm_import_from_records(mapping_records, duplicate_rows, mapping_file_name, template_path, output_path):
+def _generate_npm_import_from_records(mapping_records, duplicate_rows, mapping_file_name, template_path, output_path, allow_slot_conflict=False):
     output = Path(output_path)
     if output.suffix.lower() != ".txt":
         output = output.with_suffix(".txt")
@@ -774,8 +816,10 @@ def _generate_npm_import_from_records(mapping_records, duplicate_rows, mapping_f
 
         conflict = _first_import_location_conflict(record, occupied)
         if conflict:
-            conflict_rows.append(f"Row {record['row_number']}: {part_number} @ {location_code} nabrak dengan {conflict}")
-            continue
+            if not allow_slot_conflict:
+                conflict_rows.append(f"Row {record['row_number']}: {part_number} @ {location_code} nabrak dengan {conflict}")
+                continue
+            # allow_slot_conflict=True (substitute mode): overwrite existing slot assignment
 
         feeder_id = _feeder_id_for_import_location(
             part_key,
@@ -830,7 +874,7 @@ def _generate_npm_import_from_records(mapping_records, duplicate_rows, mapping_f
     )
 
 
-def _generate_npm_import_from_records_line8(mapping_records, duplicate_rows, mapping_file_name, template_path, output_path):
+def _generate_npm_import_from_records_line8(mapping_records, duplicate_rows, mapping_file_name, template_path, output_path, allow_slot_conflict=False):
     output = Path(output_path)
     if output.suffix.lower() != ".txt":
         output = output.with_suffix(".txt")
@@ -917,8 +961,10 @@ def _generate_npm_import_from_records_line8(mapping_records, duplicate_rows, map
 
         conflict = _first_import_location_conflict(record, occupied)
         if conflict:
-            conflict_rows.append(f"Row {record['row_number']}: {part_number} @ {location_code} nabrak dengan {conflict}")
-            continue
+            if not allow_slot_conflict:
+                conflict_rows.append(f"Row {record['row_number']}: {part_number} @ {location_code} nabrak dengan {conflict}")
+                continue
+            # allow_slot_conflict=True (substitute mode): overwrite existing slot assignment
 
         feeder_id = _feeder_id_for_import_location_line8(
             part_key,
@@ -1202,6 +1248,8 @@ def _read_import_mapping_sheet(worksheet):
                     header_map["part"] = idx
                 elif "LOCATION" in c or "SLOT" in c:
                     header_map["loc"] = idx
+                elif c == "TYPE":  # Track FIXED/SUBSTITUTE type column
+                    header_map["type"] = idx
             continue
 
         part_number = ""
@@ -1227,7 +1275,7 @@ def _read_import_mapping_sheet(worksheet):
                     if (
                         idx != loc_idx
                         and c
-                        and c.upper() not in {"FIXED", "DYNAMIC", "L", "R", "LEFT", "RIGHT", "SKIPPED"}
+                        and c.upper() not in {"FIXED", "DYNAMIC", "L", "R", "LEFT", "RIGHT", "SKIPPED", "SUBSTITUTE"}
                         and not _parse_import_location_code(c)
                     ):
                         part_number = c
@@ -1244,11 +1292,19 @@ def _read_import_mapping_sheet(worksheet):
             continue
         seen_exact_rows.add(exact_key)
 
+        # Read record type from Type column (FIXED / SUBSTITUTE / SKIPPED)
+        record_type = "FIXED"
+        if "type" in header_map and len(raw_cells) > header_map["type"]:
+            type_val = raw_cells[header_map["type"]].upper()
+            if type_val in {"FIXED", "SUBSTITUTE", "SKIPPED", "DYNAMIC"}:
+                record_type = type_val
+
         records.append(
             {
                 "row_number": row_number,
                 "part_number": part_number,
                 "location_code": parsed_location["normalized_location"],
+                "record_type": record_type,
                 **parsed_location,
             }
         )

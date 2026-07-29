@@ -699,16 +699,20 @@ class FeederMappingPage(WorkerPage):
 
     def _on_generate_npm_group_import_done(self, result):
         output_dir_name = Path(result.output_dir).name
-        self.status_label.setText(f"Saved: {result.total_groups} files in {output_dir_name}")
+        sub_count = getattr(result, "total_substitute_files", 0)
+        total_files = result.total_groups + sub_count
+        self.status_label.setText(f"Saved: {total_files} files in {output_dir_name}")
         self.status_label.setToolTip(result.output_dir)
-        self.summary_label.setText(f"{result.total_groups} GROUPS | {result.total_groups} FILES")
+        self.summary_label.setText(f"{result.total_groups} GROUPS | {total_files} FILES | {sub_count} SUB")
 
+        sub_info = f"\nJumlah file _SUB.txt (Substitute): {sub_count}" if sub_count > 0 else ""
         QMessageBox.information(
             self,
             "Fix Feeder Group to NPM TXT",
             (
                 f"Jumlah Fix Feeder Group di Excel: {result.total_groups}\n"
-                f"Jumlah file TXT berhasil dibuat: {result.successful_groups}\n\n"
+                f"Jumlah file TXT utama berhasil dibuat: {result.successful_groups}"
+                f"{sub_info}\n\n"
                 f"Tersimpan di folder:\n{result.output_dir}"
             ),
         )
