@@ -462,21 +462,33 @@ def _process_and_split_group(raw_group, group_label, models, master, global_vm, 
             continue
         valid_tables = set()
         part_spans = set()
+        part_positions = set()
         for vloc in valid_locs:
             parsed_vloc = vm._parse_loc(vloc)
             if parsed_vloc:
                 valid_tables.add(parsed_vloc[0])
                 part_spans.add(parsed_vloc[2] - parsed_vloc[1] + 1)
+                part_positions.add(parsed_vloc[3])  # 'L', 'R', or None
         if not valid_tables:
             final_unassigned.append(part)
             continue
+
+        # Prefer candidate slots that are in valid_locs of this part first, then fall back to other compatible slots
+        preferred_slots = [loc for loc in valid_locs if loc in slot_mapping]
+        other_slots = [loc for loc in slot_mapping if loc not in preferred_slots]
+        candidate_slots = preferred_slots + other_slots
+
         best_slot = None
-        for loc, occupant in slot_mapping.items():
+        for loc in candidate_slots:
+            occupant = slot_mapping[loc]
             parsed_loc = vm._parse_loc(loc)
             if not parsed_loc or parsed_loc[0] not in valid_tables:
                 continue
             loc_span = parsed_loc[2] - parsed_loc[1] + 1
             if part_spans and loc_span not in part_spans:
+                continue
+            loc_pos = parsed_loc[3]
+            if part_positions and loc_pos not in part_positions:
                 continue
             occupant_vars = variant_usage.get(occupant, set())
             existing_sub_vars = slot_sub_vars.get(loc, set())
