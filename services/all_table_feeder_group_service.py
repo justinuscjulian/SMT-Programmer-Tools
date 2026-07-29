@@ -531,8 +531,10 @@ def _process_and_split_group(raw_group, group_label, models, master, global_vm, 
                 num_options += len(item.get("alternatives", []))
             if num_options == 0:
                 num_options = 999
+            # Use cross_group_count as highest priority — same as global sort logic
+            cgc = (cross_group_count or {}).get(p, 0)
             master_freq = max([item["frequency"] for item in loc_list], default=0)
-            return (num_options, -master_freq)
+            return (-cgc, num_options, -master_freq)
 
         sorted_parent_shared = sorted(list(shared_parent_parts), key=_parent_sort_key)
 
@@ -574,8 +576,8 @@ def _process_and_split_group(raw_group, group_label, models, master, global_vm, 
 
         label1 = f"{group_label}A" if not group_label[-1].isalpha() else f"{group_label}-1"
         label2 = f"{group_label}B" if not group_label[-1].isalpha() else f"{group_label}-2"
-        res1 = _process_and_split_group(sub1, label1, models, master, parent_vm, parent_slot_mapping, parent_part_mapping, parent_unassigned, line_type)
-        res2 = _process_and_split_group(sub2, label2, models, master, parent_vm, parent_slot_mapping, parent_part_mapping, parent_unassigned, line_type)
+        res1 = _process_and_split_group(sub1, label1, models, master, parent_vm, parent_slot_mapping, parent_part_mapping, parent_unassigned, line_type, cross_group_count)
+        res2 = _process_and_split_group(sub2, label2, models, master, parent_vm, parent_slot_mapping, parent_part_mapping, parent_unassigned, line_type, cross_group_count)
         return res1 + res2
 
     return [GroupResult(
