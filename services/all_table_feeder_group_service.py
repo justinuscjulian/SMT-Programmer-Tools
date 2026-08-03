@@ -604,7 +604,7 @@ def _process_and_split_group(raw_group, group_label, models, master, global_vm, 
     )]
 
 
-def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, line_type, min_sim, min_shared, progress_callback=None):
+def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, line_type, min_sim, min_shared, progress_callback=None, base_npm_path=None):
     _emit_progress(progress_callback, 0, "Membaca referensi & Master Mapping...")
     master = get_master_mapping(master_excel_path, line_type)
     
@@ -711,6 +711,17 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
     global_slot_mapping = {}
     global_part_mapping = {}
     global_unassigned = []
+
+    if base_npm_path and Path(base_npm_path).is_file():
+        import services.feeder_mapping_service as fms
+        base_mapping_res = fms.load_feeder_mapping(base_npm_path)
+        for r in base_mapping_res.records:
+            loc = r['location_code']
+            part = r['part_number']
+            if global_vm.can_add(loc):
+                global_vm.add(loc)
+                global_slot_mapping[loc] = part
+                global_part_mapping[part] = loc
 
     def _global_sort_key(p):
         loc_list = master.get(p, [])

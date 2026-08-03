@@ -67,6 +67,10 @@ class AllTableFeederGroupPage(WorkerPage):
         self.master_picker.browse_requested.connect(self.browse_master_file)
         source_card.layout.addWidget(self.master_picker)
 
+        self.base_picker = FilePicker("Base NPM File (.txt/.crb) (Opsional):")
+        self.base_picker.browse_requested.connect(self.browse_base_file)
+        source_card.layout.addWidget(self.base_picker)
+
         line_type_layout = QHBoxLayout()
         line_type_label = QLabel("Pilih Tipe Line:")
         self.line_type_combo = QComboBox()
@@ -136,6 +140,7 @@ class AllTableFeederGroupPage(WorkerPage):
             self.clear_btn,
             self.folder_picker.button,
             self.master_picker.button,
+            self.base_picker.button,
             self.line_type_combo,
             self.list_input,
         )
@@ -150,12 +155,18 @@ class AllTableFeederGroupPage(WorkerPage):
         if file_path:
             self.master_picker.set_path(file_path)
 
+    def browse_base_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Pilih Base NPM File (Opsional)", "", "Semua File (*.*);;Text Files (*.txt);;CRB Files (*.crb)")
+        if file_path:
+            self.base_picker.set_path(file_path)
+
     def analyze_groups(self):
         if not self._validate_before_analysis():
             return
 
         crb_folder = self.folder_picker.path()
         master_excel = self.master_picker.path()
+        base_npm = self.base_picker.path()
         target_list_text = self.list_input.toPlainText()
         line_type = self.line_type_combo.currentText()
         min_sim = self.similarity_spin.value()
@@ -168,7 +179,7 @@ class AllTableFeederGroupPage(WorkerPage):
 
         def task():
             return generate_all_table_groups(
-                crb_folder, master_excel, target_list_text, line_type, min_sim, min_shared, worker.signals.progress.emit
+                crb_folder, master_excel, target_list_text, line_type, min_sim, min_shared, worker.signals.progress.emit, base_npm
             )
 
         worker = TaskWorker(task)
@@ -208,18 +219,35 @@ class AllTableFeederGroupPage(WorkerPage):
 
         try:
             saved_path = export_all_table_groups(self.groups_result, output_path, master_excel_path=self.master_picker.path())
+            
+            base_npm = self.base_picker.path()
+            if base_npm and Path(base_npm).is_file():
+                import services.feeder_mapping_service as fms
+                out_dir = Path(saved_path).parent / f"{Path(saved_path).stem}_NPM_Files"
+                out_dir.mkdir(parents=True, exist_ok=True)
+                fms.generate_npm_feeder_import_batch_from_groups(
+                    mapping_path=saved_path, 
+                    template_path=base_npm, 
+                    output_dir_path=str(out_dir)
+                )
+                
         except Exception as exc:
             QMessageBox.warning(self, "Export gagal", str(exc))
             return
 
         self.status_label.setText(f"Exported: {Path(saved_path).name}")
         self.status_label.setToolTip(saved_path)
-        QMessageBox.information(self, "Export Excel", f"File berhasil dibuat:\n{saved_path}")
+        
+        msg = f"File berhasil dibuat:\n{saved_path}"
+        if base_npm and Path(base_npm).is_file():
+            msg += f"\n\nNPM Files berhasil dibuat di folder:\n{out_dir}"
+        QMessageBox.information(self, "Export Berhasil", msg)
 
     def clear_results(self):
         self.groups_result = None
         self.folder_picker.clear()
         self.master_picker.clear()
+        self.base_picker.clear()
         self.list_input.clear()
         self.export_btn.setEnabled(False)
         self.summary_label.setText("0 GROUPS")
