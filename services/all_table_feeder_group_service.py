@@ -743,6 +743,9 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
     all_model_count = max(1, len(models))
 
     for part in sorted_global_base:
+        if part in global_part_mapping:
+            continue
+            
         loc_list = master.get(part, [])
         if not loc_list:
             global_unassigned.append(part)
