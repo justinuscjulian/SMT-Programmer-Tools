@@ -737,7 +737,12 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
         master_freq = max([item["frequency"] for item in loc_list], default=0)
         return (-cgc, num_options, -master_freq)
 
-    sorted_global_base = sorted(list(global_base_parts), key=_global_sort_key)
+    if base_npm_path and Path(base_npm_path).is_file():
+        # If a Base NPM is provided, we STRICTLY use its locks and bypass the cross-group global locking.
+        # This matches the legacy script behavior where the base NPM is the sole framework.
+        sorted_global_base = []
+    else:
+        sorted_global_base = sorted(list(global_base_parts), key=_global_sort_key)
 
     # Compute global average inserts across all models for balancing check
     all_model_count = max(1, len(models))
