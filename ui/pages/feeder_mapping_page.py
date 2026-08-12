@@ -141,9 +141,11 @@ class FeederMappingPage(WorkerPage):
 
         self.import_mode_radio = QRadioButton("Excel to NPM Feeder TXT")
         self.import_mode_line8_radio = QRadioButton("Excel to NPM Feeder TXT (Line 8)")
+        self.import_mode_line9_radio = QRadioButton("Excel to NPM Feeder TXT (Line 9)")
         self.import_mode_khusus_sub_radio = QRadioButton("Excel to NPM Feeder TXT (Khusus Sub)")
         self.group_import_mode_radio = QRadioButton("Fix Feeder Group to NPM TXT")
         self.group_import_mode_line8_radio = QRadioButton("Fix Feeder Group to NPM TXT (Line 8)")
+        self.group_import_mode_line9_radio = QRadioButton("Fix Feeder Group to NPM TXT (Line 9)")
         self.group_import_mode_khusus_sub_radio = QRadioButton("Fix Feeder Group to NPM TXT (Khusus Sub)")
 
         self.cm602_mode_radio = QRadioButton("CM602")
@@ -159,9 +161,11 @@ class FeederMappingPage(WorkerPage):
             self.npm_editor_mode_radio,
             self.import_mode_radio,
             self.import_mode_line8_radio,
+            self.import_mode_line9_radio,
             self.import_mode_khusus_sub_radio,
             self.group_import_mode_radio,
             self.group_import_mode_line8_radio,
+            self.group_import_mode_line9_radio,
             self.group_import_mode_khusus_sub_radio,
             self.cm602_mode_radio,
             self.cm602_program_cm_txt_mode_radio,
@@ -179,17 +183,19 @@ class FeederMappingPage(WorkerPage):
         # Row 1: NPM Excel Import Modes (Standard & Line 8)
         mode_grid.addWidget(self.import_mode_radio, 1, 0)
         mode_grid.addWidget(self.import_mode_line8_radio, 1, 1)
-        mode_grid.addWidget(self.group_import_mode_radio, 1, 2)
-        mode_grid.addWidget(self.group_import_mode_line8_radio, 1, 3)
+        mode_grid.addWidget(self.import_mode_line9_radio, 1, 2)
+        mode_grid.addWidget(self.group_import_mode_radio, 2, 0)
+        mode_grid.addWidget(self.group_import_mode_line8_radio, 2, 1)
+        mode_grid.addWidget(self.group_import_mode_line9_radio, 2, 2)
 
-        # Row 2: Khusus Sub Modes
-        mode_grid.addWidget(self.import_mode_khusus_sub_radio, 2, 0)
-        mode_grid.addWidget(self.group_import_mode_khusus_sub_radio, 2, 1)
+        # Row 3: Khusus Sub Modes
+        mode_grid.addWidget(self.import_mode_khusus_sub_radio, 3, 0)
+        mode_grid.addWidget(self.group_import_mode_khusus_sub_radio, 3, 1)
 
-        # Row 3: CM602 Modes
-        mode_grid.addWidget(self.cm602_mode_radio, 3, 0)
-        mode_grid.addWidget(self.cm602_program_cm_txt_mode_radio, 3, 1)
-        mode_grid.addWidget(self.cm602_feeder_fix_mode_radio, 3, 2)
+        # Row 4: CM602 Modes
+        mode_grid.addWidget(self.cm602_mode_radio, 4, 0)
+        mode_grid.addWidget(self.cm602_program_cm_txt_mode_radio, 4, 1)
+        mode_grid.addWidget(self.cm602_feeder_fix_mode_radio, 4, 2)
 
         mode_card.layout.addLayout(mode_grid)
         root.addWidget(mode_card)
@@ -304,9 +310,11 @@ class FeederMappingPage(WorkerPage):
             self.cm602_feeder_fix_mode_radio,
             self.import_mode_radio,
             self.import_mode_line8_radio,
+            self.import_mode_line9_radio,
             self.import_mode_khusus_sub_radio,
             self.group_import_mode_radio,
             self.group_import_mode_line8_radio,
+            self.group_import_mode_line9_radio,
             self.group_import_mode_khusus_sub_radio,
             self.npm_editor_mode_radio,
         )
@@ -410,15 +418,19 @@ class FeederMappingPage(WorkerPage):
             self._update_mode_actions()
 
     def browse_reference_folder(self):
-        if self._is_import_mode():
+        if (
+            self._is_group_import_mode() or
+            self._is_group_import_mode_line8() or
+            self._is_group_import_mode_line9() or
+            self._is_group_import_mode_khusus_sub()
+        ):
+            folder_path = QFileDialog.getExistingDirectory(self, "Select Reference Feeder Folder")
+            if folder_path:
+                self.reference_picker.set_path(folder_path)
+                self.status_label.setText("Reference selected")
+                self._update_mode_actions()
+        else:
             self.browse_template_npm_program()
-            return
-
-        folder_path = QFileDialog.getExistingDirectory(self, "Select Reference Feeder Folder")
-        if folder_path:
-            self.reference_picker.set_path(folder_path)
-            self.status_label.setText("Reference selected")
-            self._update_mode_actions()
 
     def browse_template_npm_program(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -500,8 +512,14 @@ class FeederMappingPage(WorkerPage):
         if self._is_group_import_mode_line8():
             self.generate_npm_group_import_files_line8()
             return
+        if self._is_group_import_mode_line9():
+            self.generate_npm_group_import_files_line9()
+            return
         if self._is_import_mode_line8():
             self.generate_npm_import_file_line8()
+            return
+        if self._is_import_mode_line9():
+            self.generate_npm_import_file_line9()
             return
         if self._is_group_import_mode():
             self.generate_npm_group_import_files()
@@ -1187,8 +1205,54 @@ class FeederMappingPage(WorkerPage):
     def _is_import_mode(self):
         return self.import_mode_radio.isChecked()
 
+    def generate_npm_import_file_line9(self):
+        mapping_path = self.source_picker.path()
+        template_path = self.reference_picker.path()
+        if not mapping_path:
+            QMessageBox.warning(self, "Input belum lengkap", "Feeder Mapping Excel (Line 9) belum dipilih.")
+            return
+
+        output_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save NPM Feeder Import TXT (Line 9)",
+            feeder_mapping_service.suggest_npm_import_output_name(mapping_path),
+            "Text File (*.txt)",
+        )
+        if not output_path:
+            return
+
+        self.run_worker(
+            lambda mapping=mapping_path, template=template_path, out=output_path: feeder_mapping_service.generate_npm_feeder_import_file_line9(mapping, template, out),
+            self._on_generate_npm_import_done,
+            "Converting Line 9 feeder mapping to NPM TXT...",
+        )
+
+    def generate_npm_group_import_files_line9(self):
+        mapping_path = self.source_picker.path()
+        template_path = self.reference_picker.path()
+        if not mapping_path:
+            QMessageBox.warning(self, "Input belum lengkap", "File Fix Feeder Group Excel (Line 9) belum dipilih.")
+            return
+
+        output_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Pilih Folder Penyimpanan Output NPM TXT (Line 9)",
+            str(Path(mapping_path).parent),
+        )
+        if not output_dir:
+            return
+
+        self.run_worker(
+            lambda mapping=mapping_path, template=template_path, out=output_dir: feeder_mapping_service.generate_npm_feeder_import_batch_from_groups_line9(mapping, template, out),
+            self._on_generate_npm_group_import_done,
+            "Converting Line 9 Fix Feeder Groups to NPM TXT...",
+        )
+
     def _is_import_mode_line8(self):
         return self.import_mode_line8_radio.isChecked()
+
+    def _is_import_mode_line9(self):
+        return self.import_mode_line9_radio.isChecked()
 
     def _is_import_mode_khusus_sub(self):
         return self.import_mode_khusus_sub_radio.isChecked()
@@ -1198,6 +1262,9 @@ class FeederMappingPage(WorkerPage):
 
     def _is_group_import_mode_line8(self):
         return self.group_import_mode_line8_radio.isChecked()
+
+    def _is_group_import_mode_line9(self):
+        return self.group_import_mode_line9_radio.isChecked()
 
     def _is_group_import_mode_khusus_sub(self):
         return self.group_import_mode_khusus_sub_radio.isChecked()
@@ -1210,8 +1277,8 @@ class FeederMappingPage(WorkerPage):
         is_cm602 = self._is_cm602_mode()
         is_cm602_program_cm_txt = self._is_cm602_program_cm_txt_mode()
         is_cm602_feeder_fix = self._is_cm602_feeder_fix_mode()
-        is_import = self._is_import_mode() or self._is_import_mode_line8() or self._is_import_mode_khusus_sub()
-        is_group_import = self._is_group_import_mode() or self._is_group_import_mode_line8() or self._is_group_import_mode_khusus_sub()
+        is_import = self._is_import_mode() or self._is_import_mode_line8() or self._is_import_mode_line9() or self._is_import_mode_khusus_sub()
+        is_group_import = self._is_group_import_mode() or self._is_group_import_mode_line8() or self._is_group_import_mode_line9() or self._is_group_import_mode_khusus_sub()
         is_npm_editor = self._is_npm_editor_mode()
 
         if is_npm_editor:
@@ -1219,12 +1286,12 @@ class FeederMappingPage(WorkerPage):
             self.source_picker.button.setText("Browse")
         elif is_group_import:
             self.source_picker.label.setText("Fix Feeder Group Excel (.xlsx):")
-            self.reference_picker.label.setText("NPM Program Template (Optional, kosongkan untuk auto Line 8):" if self._is_group_import_mode_line8() else "NPM Program Template (Optional, kosongkan untuk auto):")
+            self.reference_picker.label.setText("NPM Program Template (Optional, kosongkan untuk auto Line 8):" if self._is_group_import_mode_line8() else "NPM Program Template (Optional, kosongkan untuk auto Line 9):" if self._is_group_import_mode_line9() else "NPM Program Template (Optional, kosongkan untuk auto):")
             self.source_picker.button.setText("Browse")
             self.reference_picker.button.setText("Browse")
         elif is_import:
             self.source_picker.label.setText("Feeder Mapping Excel (.xlsx):")
-            self.reference_picker.label.setText("NPM Program Template (Optional, kosongkan untuk auto Line 8):" if self._is_import_mode_line8() else "NPM Program Template (Optional, kosongkan untuk auto):")
+            self.reference_picker.label.setText("NPM Program Template (Optional, kosongkan untuk auto Line 8):" if self._is_import_mode_line8() else "NPM Program Template (Optional, kosongkan untuk auto Line 9):" if self._is_import_mode_line9() else "NPM Program Template (Optional, kosongkan untuk auto):")
             self.source_picker.button.setText("Browse")
             self.reference_picker.button.setText("Browse")
         elif is_cm602_feeder_fix:

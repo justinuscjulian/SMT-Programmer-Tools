@@ -22,6 +22,9 @@ class VirtualMachine:
             for t in range(1, 7):
                 self.tables[t] = [{'L': False, 'R': False} for _ in range(30)]
             self.tables[7] = [{'L': False, 'R': False} for _ in range(30)]
+        elif line_type == "Line 9":
+            for t in range(1, 3):
+                self.tables[t] = [{'L': False, 'R': False} for _ in range(30)]
         else: # Line 6-7
             for t in range(1, 10):
                 self.tables[t] = [{'L': False, 'R': False} for _ in range(30)]
@@ -99,7 +102,7 @@ class VirtualMachine:
                 self.tables[t][idx]['L'] = False
                 self.tables[t][idx]['R'] = False
 
-    def find_fallback(self, loc_str):
+    def find_fallback(self, loc_str, fallback_tables=None):
         parsed = self._parse_loc(loc_str)
         if not parsed:
             return None
@@ -109,7 +112,10 @@ class VirtualMachine:
         if pref_t not in self.tables:
             return None
             
-        allowed_tables = [pref_t]
+        if fallback_tables is not None:
+            allowed_tables = fallback_tables
+        else:
+            allowed_tables = [pref_t]
             
         for t in allowed_tables:
             if t not in self.tables:
@@ -171,6 +177,11 @@ def get_master_mapping(excel_path, line_type=None):
         idx_loc = headers.index("Feeder Paling Sering")
         idx_freq = headers.index("Total Muncul")
         idx_other = headers.index("Feeder Lain") if "Feeder Lain" in headers else -1
+        idx_notes = -1
+        for col_name in ["Notes", "Keterangan", "Note"]:
+            if col_name in headers:
+                idx_notes = headers.index(col_name)
+                break
     except ValueError as e:
         raise ServiceError(f"Format Master Mapping salah: {e}")
         
@@ -181,6 +192,7 @@ def get_master_mapping(excel_path, line_type=None):
         part = str(row[idx_part]).strip().upper()
         loc = str(row[idx_loc]).strip() if row[idx_loc] else ""
         freq = int(row[idx_freq]) if row[idx_freq] else 0
+        notes = str(row[idx_notes]).strip() if idx_notes != -1 and row[idx_notes] else ""
         
         # Ignore Tables
         if "[10]" in loc:
@@ -203,7 +215,8 @@ def get_master_mapping(excel_path, line_type=None):
         master[part].append({
             "location": loc,
             "frequency": freq,
-            "alternatives": other_locs
+            "alternatives": other_locs,
+            "notes": notes
         })
     return master
 
@@ -348,6 +361,22 @@ def _process_and_split_group(raw_group, group_label, models, master, global_vm, 
                 if alt and alt not in candidates:
                     candidates.append(alt)
             placed = False
+            
+            fallback_tables = None
+            if line_type == "Line 9":
+                allowed_t_set = set()
+                for item in master.get(part, []):
+                    l_val = item.get("location")
+                    if l_val:
+                        p_l = vm._parse_loc(l_val)
+                        if p_l: allowed_t_set.add(p_l[0])
+                    for alt in item.get("alternatives", []):
+                        if alt:
+                            p_a = vm._parse_loc(alt)
+                            if p_a: allowed_t_set.add(p_a[0])
+                if allowed_t_set:
+                    fallback_tables = sorted(list(allowed_t_set))
+
             for loc in candidates:
                 if vm.can_add(loc):
                     vm.add(loc)
@@ -356,11 +385,11 @@ def _process_and_split_group(raw_group, group_label, models, master, global_vm, 
                     placed = True
                     break
                 else:
-                    fallback = vm.find_fallback(loc)
+                    fallback = vm.find_fallback(loc, fallback_tables=fallback_tables)
                     if fallback:
                         vm.add(fallback)
                         slot_mapping[fallback] = part
-                        part_mapping[fallback] = fallback
+                        part_mapping[part] = fallback
                         placed = True
                         break
             if not placed:
@@ -569,6 +598,22 @@ def _process_and_split_group(raw_group, group_label, models, master, global_vm, 
                 if alt and alt not in candidates:
                     candidates.append(alt)
             placed = False
+            
+            fallback_tables = None
+            if line_type == "Line 9":
+                allowed_t_set = set()
+                for item in master.get(part, []):
+                    l_val = item.get("location")
+                    if l_val:
+                        p_l = parent_vm._parse_loc(l_val)
+                        if p_l: allowed_t_set.add(p_l[0])
+                    for alt in item.get("alternatives", []):
+                        if alt:
+                            p_a = parent_vm._parse_loc(alt)
+                            if p_a: allowed_t_set.add(p_a[0])
+                if allowed_t_set:
+                    fallback_tables = sorted(list(allowed_t_set))
+                    
             for loc in candidates:
                 if parent_vm.can_add(loc):
                     parent_vm.add(loc)
@@ -577,7 +622,7 @@ def _process_and_split_group(raw_group, group_label, models, master, global_vm, 
                     placed = True
                     break
                 else:
-                    fallback = parent_vm.find_fallback(loc)
+                    fallback = parent_vm.find_fallback(loc, fallback_tables=fallback_tables)
                     if fallback:
                         parent_vm.add(fallback)
                         parent_slot_mapping[fallback] = part
@@ -661,7 +706,7 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
                 target_list.append(line)
 
     _emit_progress(progress_callback, 10, "Scanning PCB folders...")
-    models, _, _, _ = _scan_models(crb_folder, target_list, progress_callback)
+    models, _, _, _ = _scan_models(crb_folder, target_list, progress_callback, line_type=line_type)
     if not models:
         raise ServiceError("Tidak ada file Excel program yang valid ditemukan atau sesuai dengan target PCB.")
 
@@ -714,14 +759,19 @@ def generate_all_table_groups(crb_folder, master_excel_path, target_pcbs_text, l
 
     if base_npm_path and Path(base_npm_path).is_file():
         import services.feeder_mapping_service as fms
-        base_mapping_res = fms.load_feeder_mapping(base_npm_path)
-        for r in base_mapping_res.records:
-            loc = r['location_code']
-            part = r['part_number']
-            if global_vm.can_add(loc):
-                global_vm.add(loc)
-                global_slot_mapping[loc] = part
-                global_part_mapping[part] = loc
+        from services.errors import ServiceError
+        try:
+            base_mapping_res = fms.load_feeder_mapping(base_npm_path)
+            for r in base_mapping_res.records:
+                loc = r['location_code']
+                part = r['part_number']
+                if global_vm.can_add(loc):
+                    global_vm.add(loc)
+                    global_slot_mapping[loc] = part
+                    global_part_mapping[part] = loc
+        except ServiceError:
+            pass  # Template is valid but empty, which is fine
+
 
     def _global_sort_key(p):
         loc_list = master.get(p, [])

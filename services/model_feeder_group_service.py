@@ -13,6 +13,7 @@ from services.common_feeder_reuse_service import (
     _normalize_output_path,
     _part_key,
     _read_bom_parts,
+    _read_cm602_parts,
     _style_sheet,
 )
 from services.component_usage_finder_service import format_pcb_part_number, parse_pcb_part_number
@@ -179,7 +180,7 @@ def export_model_feeder_group_result(result, output_path):
     return str(output)
 
 
-def _scan_models(source_folder, target_pcb_list, progress_callback=None):
+def _scan_models(source_folder, target_pcb_list, progress_callback=None, line_type=None):
     folder = Path(source_folder)
     models = OrderedDict()
     skipped_files = []
@@ -221,7 +222,10 @@ def _scan_models(source_folder, target_pcb_list, progress_callback=None):
             )
 
             try:
-                part_values = _read_bom_parts(file_path)
+                if line_type == "Line 9":
+                    part_values = _read_cm602_parts(file_path)
+                else:
+                    part_values = _read_bom_parts(file_path)
             except Exception as exc:
                 skipped_files.append(f"{pcb_folder.name} / {file_path.name}: {_error_message(exc)}")
                 continue

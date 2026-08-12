@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFileDialog,
@@ -35,11 +35,18 @@ from widgets.table_tools import configure_table, install_copy_menu
 
 
 class PcbGroupMatcherPage(WorkerPage):
+    progress_updated = Signal(int, str)
+
     def __init__(self, thread_pool, theme_manager, parent=None):
         super().__init__(thread_pool, theme_manager, parent)
         self.matcher_result = None
         self._build_ui()
         self.theme_manager.changed.connect(self.apply_theme_to_models)
+        self.progress_updated.connect(self._on_progress_update)
+
+    def _on_progress_update(self, percent, msg):
+        self.progress.setValue(percent)
+        self.status_label.setText(msg)
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -268,8 +275,7 @@ class PcbGroupMatcherPage(WorkerPage):
         self.status_label.setText("Analyzing PCB Group Match...")
 
         def _worker_progress(percent, msg):
-            self.progress.setValue(percent)
-            self.status_label.setText(msg)
+            self.progress_updated.emit(percent, msg)
 
         self.run_worker(
             lambda: analyze_pcb_group_matcher(config, progress_callback=_worker_progress),
@@ -296,24 +302,31 @@ class PcbGroupMatcherPage(WorkerPage):
 
         self.result_model.set_records(table_records)
         self.summary_label.setText(f"{len(result.group_matches)} GROUPS MATCHED | PCB: {result.pcb_parts_count} PARTS")
-        self.status_label.setText(f"Done: {result.best_match.group_name} Best Match ({result.best_match.match_rate_percent}%)")
         self.export_btn.setEnabled(True)
-
         if self.result_table.model().rowCount() > 0:
             self.result_table.selectRow(0)
 
-        QMessageBox.information(
-            self,
-            "PCB Group Matcher Selesai",
-            (
-                f"Hasil Analisis Kecocokan PCB [{result.pcb_name}]:\n\n"
-                f"🏆 Rekomendasi Group Terbaik: {result.best_match.group_name}\n"
-                f"📊 Match Rate: {result.best_match.match_rate_percent}%\n"
-                f"✅ Komponen Ter-cover: {result.best_match.matched_count} / {result.best_match.total_pcb_parts}\n"
-                f"🔧 Feeder Tambahan Dibutuhkan: {result.best_match.missing_count}\n\n"
-                f"Catatan:\n{result.best_match.recommendation_note}"
-            ),
-        )
+        if result.best_match:
+            self.status_label.setText(f"Done: {result.best_match.group_name} Best Match ({result.best_match.match_rate_percent}%)")
+            QMessageBox.information(
+                self,
+                "PCB Group Matcher Selesai",
+                (
+                    f"Hasil Analisis Kecocokan PCB [{result.pcb_name}]:\n\n"
+                    f"🏆 Rekomendasi Group Terbaik: {result.best_match.group_name}\n"
+                    f"📊 Match Rate: {result.best_match.match_rate_percent}%\n"
+                    f"✅ Komponen Ter-cover: {result.best_match.matched_count} / {result.best_match.total_pcb_parts}\n"
+                    f"🔧 Feeder Tambahan Dibutuhkan: {result.best_match.missing_count}\n\n"
+                    f"Catatan:\n{result.best_match.recommendation_note}"
+                ),
+            )
+        else:
+            self.status_label.setText("Done: No match found")
+            QMessageBox.warning(
+                self,
+                "PCB Group Matcher Selesai",
+                f"Hasil Analisis Kecocokan PCB [{result.pcb_name}]:\n\nTidak ada group yang valid untuk dicocokkan."
+            )
 
     def _on_table_selection_changed(self):
         indexes = self.result_table.selectionModel().selectedRows()

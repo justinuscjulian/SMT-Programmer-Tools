@@ -74,7 +74,7 @@ class AllTableFeederGroupPage(WorkerPage):
         line_type_layout = QHBoxLayout()
         line_type_label = QLabel("Pilih Tipe Line:")
         self.line_type_combo = QComboBox()
-        self.line_type_combo.addItems(["Line 1-5", "Line 6-7", "Line 8"])
+        self.line_type_combo.addItems(["Line 1-5", "Line 6-7", "Line 8", "Line 9"])
         line_type_layout.addWidget(line_type_label)
         line_type_layout.addWidget(self.line_type_combo)
         line_type_layout.addStretch()
@@ -225,11 +225,25 @@ class AllTableFeederGroupPage(WorkerPage):
                 import services.feeder_mapping_service as fms
                 out_dir = Path(saved_path).parent / f"{Path(saved_path).stem}_NPM_Files"
                 out_dir.mkdir(parents=True, exist_ok=True)
-                fms.generate_npm_feeder_import_batch_from_groups(
-                    mapping_path=saved_path, 
-                    template_path=base_npm, 
-                    output_dir_path=str(out_dir)
-                )
+                line_type = self.line_type_combo.currentText()
+                if line_type == "Line 8":
+                    fms.generate_npm_feeder_import_batch_from_groups_line8(
+                        mapping_path=saved_path, 
+                        template_path=base_npm, 
+                        output_dir_path=str(out_dir)
+                    )
+                elif line_type == "Line 9":
+                    fms.generate_npm_feeder_import_batch_from_groups_line9(
+                        mapping_path=saved_path, 
+                        template_path=base_npm, 
+                        output_dir_path=str(out_dir)
+                    )
+                else:
+                    fms.generate_npm_feeder_import_batch_from_groups(
+                        mapping_path=saved_path, 
+                        template_path=base_npm, 
+                        output_dir_path=str(out_dir)
+                    )
                 
         except Exception as exc:
             QMessageBox.warning(self, "Export gagal", str(exc))

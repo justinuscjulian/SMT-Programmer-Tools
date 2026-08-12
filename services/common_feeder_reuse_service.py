@@ -701,3 +701,79 @@ def _emit_progress(progress_callback, percent, message):
 
 def _error_message(exc):
     return getattr(exc, "message", str(exc))
+
+
+def _read_cm602_parts(path):
+    path = Path(path)
+    suffix = path.suffix.lower()
+    if suffix in OPENPYXL_EXTENSIONS:
+        return _read_cm602_parts_openpyxl(path)
+    if suffix == ".xls":
+        return _read_cm602_parts_pandas(path)
+    raise ServiceError(f"Format file tidak didukung: {path.suffix}", title="Format tidak valid")
+
+
+def _read_cm602_parts_openpyxl(path):
+    workbook = load_workbook(path, read_only=True, data_only=True, keep_links=False)
+    try:
+        worksheet = _find_sheet_case_insensitive(workbook.sheetnames, "CM602")
+        if worksheet is None:
+            raise ServiceError('Sheet "CM602" tidak ditemukan.', title="Format Excel tidak valid")
+
+        values = []
+        for row in workbook[worksheet].iter_rows(min_row=2, min_col=11, max_col=14, values_only=True):
+            part_value = row[0] if row else None
+            mc_value = row[3] if len(row) > 3 else None
+            if mc_value is not None and str(mc_value).strip() == "3":
+                if part_value and str(part_value).strip():
+                    values.append(part_value)
+        return _clean_part_values(values)
+    finally:
+        workbook.close()
+
+
+def _read_cm602_parts_pandas(path):
+    try:
+        import pandas as pd
+    except ImportError as exc:
+        raise ServiceError(
+            "File .xls membutuhkan pandas dan xlrd. Jalankan install dependency dari requirements.txt.",
+            title="Dependency belum lengkap",
+        ) from exc
+
+    excel = open_pandas_excel_file(pd, path)
+    try:
+        sheet_name = _find_sheet_case_insensitive(excel.sheet_names, "CM602")
+        if sheet_name is None:
+            raise ServiceError('Sheet "CM602" tidak ditemukan.', title="Format Excel tidak valid")
+        
+        try:
+            dataframe = pd.read_excel(
+                excel,
+                sheet_name=sheet_name,
+                header=None,
+                dtype=object,
+                na_filter=False,
+                usecols="K,N",
+            )
+            values = []
+            for i in range(1, len(dataframe)):
+                part_value = dataframe.iloc[i, 0]
+                mc_value = dataframe.iloc[i, 1]
+                if str(mc_value).strip() == "3":
+                    if part_value and str(part_value).strip():
+                        values.append(part_value)
+            return _clean_part_values(values)
+        except ValueError:
+            dataframe = pd.read_excel(excel, sheet_name=sheet_name, header=None, dtype=object, na_filter=False)
+            values = []
+            for i in range(1, len(dataframe)):
+                if len(dataframe.columns) >= 14:
+                    part_value = dataframe.iloc[i, 10]
+                    mc_value = dataframe.iloc[i, 13]
+                    if str(mc_value).strip() == "3":
+                        if part_value and str(part_value).strip():
+                            values.append(part_value)
+            return _clean_part_values(values)
+    finally:
+        excel.close()
