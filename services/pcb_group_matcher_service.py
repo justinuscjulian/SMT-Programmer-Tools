@@ -12,6 +12,8 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from services.common_feeder_reuse_service import _clean_part_values, _part_key, _part_text, _read_bom_parts
 from services.errors import ServiceError
 from services.io_helpers import scan_recursive_files
+from services.all_table_feeder_group_service import VirtualMachine, get_master_mapping, GroupResult, export_all_table_groups, PcbInfo
+import services.feeder_mapping_service as fms
 
 MODE_BOM_FILE = "bom_file"
 MODE_PROGRAM_FOLDER = "program_folder"
@@ -26,6 +28,7 @@ class PcbGroupMatcherConfig:
     import_mode: str
     pcb_source_path: str
     fix_feeder_group_path: str
+    line_type: str = "Line 1-5"
     output_path: str = ""
 
 
@@ -47,6 +50,7 @@ class GroupMatchItem:
 @dataclass
 class PcbGroupMatcherResult:
     output_path: str
+    fix_feeder_group_path: str
     pcb_name: str
     import_mode: str
     pcb_parts_count: int
@@ -64,7 +68,7 @@ def analyze_pcb_group_matcher(config: PcbGroupMatcherConfig, progress_callback=N
     _validate_config(config)
 
     _emit_progress(progress_callback, 5, "Membaca komponen PCB baru...")
-    pcb_parts, pcb_name = _extract_new_pcb_parts(config.import_mode, config.pcb_source_path)
+    pcb_parts, pcb_name = _extract_new_pcb_parts(config.import_mode, config.pcb_source_path, config.line_type)
     if not pcb_parts:
         raise ServiceError(
             "Tidak ditemukan Part Number komponen yang valid dari input PCB baru yang diberikan.",
@@ -168,6 +172,7 @@ def analyze_pcb_group_matcher(config: PcbGroupMatcherConfig, progress_callback=N
     _emit_progress(progress_callback, 100, "Analisis kecocokan selesai!")
     return PcbGroupMatcherResult(
         output_path=config.output_path,
+        fix_feeder_group_path=config.fix_feeder_group_path,
         pcb_name=pcb_name,
         import_mode=config.import_mode,
         pcb_parts_count=len(pcb_parts),
@@ -248,10 +253,25 @@ def export_pcb_group_matcher_result(result: PcbGroupMatcherResult, output_path: 
     return str(out_path)
 
 
-def _extract_new_pcb_parts(mode, source_path):
+def _extract_new_pcb_parts(mode, source_path, line_type="Line 1-5"):
     path = Path(source_path)
     parts_set = set()
     pcb_name = path.stem
+
+    def _read_parts_smart(file_path):
+        if line_type == "Line 9":
+            try:
+                from services.model_feeder_group_service import _read_cm602_parts
+                return _read_cm602_parts(file_path, mc_filter="3")
+            except Exception:
+                pass
+        elif line_type == "CM602":
+            try:
+                from services.model_feeder_group_service import _read_cm602_parts
+                return _read_cm602_parts(file_path, mc_filter="0")
+            except Exception:
+                pass
+        return _read_parts_from_excel(file_path)
 
     if mode == MODE_BOM_FILE:
         if path.suffix.lower() in EXCEL_EXTENSIONS:
@@ -268,7 +288,7 @@ def _extract_new_pcb_parts(mode, source_path):
     elif mode == MODE_PROGRAM_EXCEL:
         if path.suffix.lower() not in EXCEL_EXTENSIONS:
             raise ServiceError("File program PCB harus berformat Excel (.xlsx, .xls, .xlsm).", title="Format file tidak valid")
-        part_list = _read_parts_from_excel(path)
+        part_list = _read_parts_smart(path)
         for p in part_list:
             key = _part_key(p)
             if key:
@@ -278,19 +298,23 @@ def _extract_new_pcb_parts(mode, source_path):
         if not path.is_dir():
             raise ServiceError(f"Folder PCB tidak ditemukan:\n{path}", title="Folder tidak ditemukan")
         pcb_name = path.name
-        excel_files = scan_recursive_files(path, EXCEL_EXTENSIONS, skip_prefixes=("~$",))
-        if not excel_files:
-            raise ServiceError(f"Tidak ada file Excel program yang ditemukan dalam folder:\n{path}", title="File tidak ditemukan")
-
-        for f in excel_files:
-            try:
-                part_list = _read_parts_from_excel(f)
-                for p in part_list:
-                    key = _part_key(p)
-                    if key:
-                        parts_set.add(p)
-            except Exception:
-                continue
+        
+        from services.model_feeder_group_service import _scan_models
+        # We pass target_pcb_list=[pcb_name] to filter exactly this folder if it's within a parent folder.
+        # However, _scan_models's source_folder is `path`. If `path` is the PCB folder itself,
+        # _pcb_folders(path) will just return `[path]`, so we can pass target_pcb_list=None.
+        models, _, _, skipped = _scan_models(source_folder=str(path), target_pcb_list=None, progress_callback=None, line_type=line_type)
+        
+        if not models:
+            raise ServiceError(f"Tidak ada part number yang ditemukan dalam folder program:\n{path}\nSkipped: {skipped}", title="Komponen kosong")
+            
+        for model in models.values():
+            for part in model.components.values():
+                if part:
+                    parts_set.add(part)
+        # Use the primary model name if possible
+        if models:
+            pcb_name = list(models.values())[0].pcb_part_number
 
     else:
         raise ServiceError(f"Mode import tidak dikenal: {mode}", title="Mode tidak valid")
@@ -544,3 +568,306 @@ def _style_detail_sheet(ws):
         max_len = max(len(str(cell.value or '')) for cell in col)
         col_letter = col[0].column_letter
         ws.column_dimensions[col_letter].width = max(max_len + 3, 15)
+
+
+
+import re
+
+def _load_ohm_ini_library():
+    import win32com.client
+    
+    file_path = r"C:\Users\User\Documents\PROJECT\SMT Programmer Tools\SMT-Programmer-Tools\≪ OHM_INI ≫.xlsb"
+    if not Path(file_path).is_file():
+        return {}
+        
+    excel = win32com.client.DispatchEx("Excel.Application")
+    excel.Visible = False
+    excel.DisplayAlerts = False
+    
+    library_map = {}
+    try:
+        wb = excel.Workbooks.Open(file_path, ReadOnly=True)
+        ws = wb.Worksheets(1)
+        
+        data = ws.UsedRange.Value
+        if data:
+            for i, row in enumerate(data):
+                if i == 0: continue # Skip header
+                if len(row) > 4:
+                    part = str(row[0] or "").strip()
+                    fd = str(row[4] or "").strip()
+                    if part and fd:
+                        library_map[part] = fd
+    except Exception as e:
+        print(f"Failed to read OHM_INI library: {e}")
+    finally:
+        try:
+            wb.Close(False)
+        except:
+            pass
+        excel.Quit()
+        
+    return library_map
+
+
+def generate_merged_fix_feeder_group(
+    pcb_result: PcbGroupMatcherResult,
+    selected_group_name: str,
+    line_type: str,
+    master_excel_path: str,
+    output_excel_path: str,
+    base_npm_path: str = None,
+    progress_callback=None
+):
+    _emit_progress(progress_callback, 10, "Membaca data Base Fix Feeder Group...")
+    group_parts_map, group_pcbs_map = _load_fix_feeder_groups(pcb_result.fix_feeder_group_path)
+    if selected_group_name not in group_parts_map:
+        raise ServiceError(f"Group '{selected_group_name}' tidak ditemukan di file base.", title="Group tidak ditemukan")
+
+    base_parts = group_parts_map[selected_group_name]
+    base_pcbs = group_pcbs_map.get(selected_group_name, [])
+
+    _emit_progress(progress_callback, 30, "Membaca Master Mapping Excel...")
+    master = get_master_mapping(master_excel_path, line_type)
+
+    # Initialize VirtualMachine and Mappings
+    vm = VirtualMachine(line_type)
+    slot_mapping = {}
+    part_mapping = {}
+    substitute_mapping = {}
+
+    for key, info in base_parts.items():
+        loc = info["location_code"]
+        part = info["part_number"]
+        part_type = info.get("type", "FIXED").upper()
+        
+        if part_type == "FIXED":
+            if vm.can_add(loc):
+                vm.add(loc)
+            slot_mapping[loc] = part
+            part_mapping[part] = loc
+        else:
+            if loc not in substitute_mapping:
+                substitute_mapping[loc] = []
+            substitute_mapping[loc].append((part, ["BASE"]))
+            part_mapping[part] = loc
+
+    # Get missing parts that need to be merged
+    missing_parts = []
+    for match in pcb_result.group_matches:
+        if match.group_name == selected_group_name:
+            missing_parts = match.missing_details
+            break
+
+    _emit_progress(progress_callback, 50, f"Menempatkan {len(missing_parts)} komponen baru ke slot kosong...")
+    unassigned_parts = []
+    
+    # Sort missing parts based on master frequency / options
+    def part_sort_key(p):
+        loc_list = master.get(p, [])
+        num_options = 0
+        for item in loc_list:
+            if item["location"]:
+                num_options += 1
+            num_options += len(item.get("alternatives", []))
+        if num_options == 0:
+            num_options = 999
+        master_freq = max([item["frequency"] for item in loc_list], default=0)
+        return (num_options, -master_freq)
+
+    sorted_missing = sorted(list(set(missing_parts)), key=part_sort_key)
+
+    ohm_ini_library = None
+    ohm_ini_loaded = False
+
+    for part in sorted_missing:
+        loc_list = master.get(part, [])
+        if not loc_list:
+            pass # We will try fallback below
+        else:
+            loc_list = sorted(loc_list, key=lambda x: x["frequency"], reverse=True)
+            primary_loc = loc_list[0]["location"]
+            if primary_loc:
+                candidates = [primary_loc]
+                for alt in loc_list[0].get("alternatives", []):
+                    if alt and alt not in candidates:
+                        candidates.append(alt)
+                        
+                fallback_tables = None
+                if line_type == "Line 9":
+                    allowed_t_set = set()
+                    for item in master.get(part, []):
+                        l_val = item.get("location")
+                        if l_val:
+                            p_l = vm._parse_loc(l_val)
+                            if p_l: allowed_t_set.add(p_l[0])
+                        for alt in item.get("alternatives", []):
+                            if alt:
+                                p_a = vm._parse_loc(alt)
+                                if p_a: allowed_t_set.add(p_a[0])
+                    if allowed_t_set:
+                        fallback_tables = sorted(list(allowed_t_set))
+        
+                placed = False
+                for loc in candidates:
+                    if vm.can_add(loc):
+                        vm.add(loc)
+                        slot_mapping[loc] = part
+                        part_mapping[part] = loc
+                        placed = True
+                        break
+                    else:
+                        fallback = vm.find_fallback(loc, fallback_tables=fallback_tables)
+                        if fallback:
+                            vm.add(fallback)
+                            slot_mapping[fallback] = part
+                            part_mapping[part] = fallback
+                            placed = True
+                            break
+                
+                if placed:
+                    continue
+        
+        # Fallback to OHM_INI library if part not in master or no slot found
+        if line_type in ("Line 1-5", "Line 6-7"):
+            if not ohm_ini_loaded:
+                _emit_progress(progress_callback, 60, "Membaca OHM INI Library...")
+                ohm_ini_library = _load_ohm_ini_library()
+                ohm_ini_loaded = True
+                
+            fd_val = ohm_ini_library.get(part, "")
+            if fd_val and "TRAY" not in fd_val.upper():
+                m = re.search(r'(?:E|P|e|p)[^\d]*(\d{2})', fd_val)
+                if m:
+                    size = int(m.group(1))
+                    dummy_loc = None
+                    allowed_tables = None
+                    if size == 8:
+                        dummy_loc = "[1]1L"
+                        allowed_tables = [1, 2, 3, 4, 5, 6, 8]
+                    elif 12 <= size <= 24:
+                        dummy_loc = "[7]1" if size < 24 else "[7]1-2"
+                        allowed_tables = [7]
+                    elif size >= 32:
+                        dummy_loc = "[9]1-2"
+                        allowed_tables = [9]
+                        
+                    if dummy_loc and allowed_tables:
+                        fallback = vm.find_fallback(dummy_loc, fallback_tables=allowed_tables)
+                        if fallback:
+                            vm.add(fallback)
+                            slot_mapping[fallback] = part
+                            part_mapping[part] = fallback
+                            continue
+                            
+        # Fallback to Substitute Logic
+        valid_tables = None
+        part_span = None
+        
+        # 1. Constraints from master
+        loc_list = master.get(part, [])
+        if loc_list:
+            valid_tables = set()
+            for item in loc_list:
+                l_val = item.get("location")
+                if l_val:
+                    p = vm._parse_loc(l_val)
+                    if p:
+                        valid_tables.add(p[0])
+                        part_span = p[2] - p[1] + 1
+                for alt in item.get("alternatives", []):
+                    if alt:
+                        p = vm._parse_loc(alt)
+                        if p:
+                            valid_tables.add(p[0])
+                            part_span = p[2] - p[1] + 1
+            if not valid_tables:
+                valid_tables = None
+
+        # 2. Constraints from OHM INI
+        if not valid_tables and line_type in ("Line 1-5", "Line 6-7") and ohm_ini_library:
+            fd_val = ohm_ini_library.get(part, "")
+            if fd_val and "TRAY" not in fd_val.upper():
+                m = re.search(r'(?:E|P|e|p)[^\d]*(\d{2})', fd_val)
+                if m:
+                    size = int(m.group(1))
+                    if size == 8:
+                        valid_tables = {1, 2, 3, 4, 5, 6, 8}
+                        part_span = 1
+                    elif 12 <= size <= 24:
+                        valid_tables = {7}
+                        part_span = 1 if size < 24 else 2
+                    elif size >= 32:
+                        valid_tables = {9}
+                        part_span = 2
+
+        if valid_tables:
+            placed_as_sub = False
+            for loc, occupant in slot_mapping.items():
+                parsed_loc = vm._parse_loc(loc)
+                if not parsed_loc or parsed_loc[0] not in valid_tables:
+                    continue
+                loc_span = parsed_loc[2] - parsed_loc[1] + 1
+                if part_span and loc_span != part_span:
+                    continue
+                    
+                if occupant in pcb_result.unique_parts:
+                    continue
+                
+                subs = substitute_mapping.get(loc, [])
+                conflict = False
+                for sub_part, _ in subs:
+                    if sub_part in pcb_result.unique_parts:
+                        conflict = True
+                        break
+                if conflict:
+                    continue
+                    
+                if loc not in substitute_mapping:
+                    substitute_mapping[loc] = []
+                substitute_mapping[loc].append((part, [pcb_result.pcb_name]))
+                part_mapping[part] = loc
+                placed_as_sub = True
+                break
+                
+            if placed_as_sub:
+                continue
+                            
+        unassigned_parts.append(part)
+
+    _emit_progress(progress_callback, 70, "Mengekspor hasil ke Excel...")
+    
+    # Combine PCBs
+    combined_pcb_names = list(base_pcbs)
+    if pcb_result.pcb_name not in combined_pcb_names:
+        combined_pcb_names.append(pcb_result.pcb_name)
+        
+    group_pcbs = [PcbInfo(name, "", set()) for name in combined_pcb_names]
+
+    res = GroupResult(
+        group_name=selected_group_name + "_Merged",
+        pcbs=group_pcbs,
+        slot_mapping=slot_mapping,
+        part_mapping=part_mapping,
+        unassigned_parts=unassigned_parts,
+        substitute_mapping=substitute_mapping,
+        master_excel_path=master_excel_path
+    )
+
+    saved_path = export_all_table_groups([res], output_excel_path, master_excel_path)
+
+    _emit_progress(progress_callback, 90, "Generate file mesin (NPM/CRB)...")
+    if base_npm_path and Path(base_npm_path).is_file():
+        out_dir = Path(saved_path).parent / f"{Path(saved_path).stem}_NPM_Files"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        if line_type == "Line 8":
+            fms.generate_npm_feeder_import_batch_from_groups_line8(saved_path, base_npm_path, str(out_dir))
+        elif line_type == "Line 9":
+            fms.generate_npm_feeder_import_batch_from_groups_line9(saved_path, base_npm_path, str(out_dir))
+        elif line_type == "CM602":
+            fms.generate_cm602_feeder_import_batch_from_groups(saved_path, base_npm_path, str(out_dir))
+        else:
+            fms.generate_npm_feeder_import_batch_from_groups(saved_path, base_npm_path, str(out_dir))
+
+    _emit_progress(progress_callback, 100, "Proses Merge selesai!")
+    return saved_path, len(unassigned_parts)

@@ -25,6 +25,9 @@ class VirtualMachine:
         elif line_type == "Line 9":
             for t in range(1, 3):
                 self.tables[t] = [{'L': False, 'R': False} for _ in range(30)]
+        elif line_type == "CM602":
+            for t in [1, 3, 4]:
+                self.tables[t] = [{'L': False, 'R': False} for _ in range(27)]
         else: # Line 6-7
             for t in range(1, 10):
                 self.tables[t] = [{'L': False, 'R': False} for _ in range(30)]

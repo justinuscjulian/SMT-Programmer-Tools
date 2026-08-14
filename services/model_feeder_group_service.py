@@ -223,7 +223,9 @@ def _scan_models(source_folder, target_pcb_list, progress_callback=None, line_ty
 
             try:
                 if line_type == "Line 9":
-                    part_values = _read_cm602_parts(file_path)
+                    part_values = _read_cm602_parts(file_path, mc_filter="3")
+                elif line_type == "CM602":
+                    part_values = _read_cm602_parts(file_path, mc_filter="0")
                 else:
                     part_values = _read_bom_parts(file_path)
             except Exception as exc:

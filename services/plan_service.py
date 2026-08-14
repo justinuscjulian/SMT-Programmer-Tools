@@ -645,6 +645,7 @@ def _is_excel_file(path):
 
 def _load_win32():
     try:
+        import win32timezone
         import win32com.client as win32
         import pythoncom
     except ImportError as exc:

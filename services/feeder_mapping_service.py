@@ -532,6 +532,9 @@ def generate_npm_feeder_import_batch_from_groups(mapping_path, template_path, ou
             raw_filename = sheet_title
 
         clean_filename = re.sub(r'[\\/*?"<>|]', '_', raw_filename).strip()
+        if len(clean_filename) > 100:
+            clean_filename = sheet_title
+
         if not clean_filename:
             clean_filename = sheet_title
 
@@ -587,6 +590,166 @@ def generate_npm_feeder_import_file_khusus_sub(mapping_path, template_path, outp
     from services import feeder_mapping_service_khusus_sub
     return feeder_mapping_service_khusus_sub.generate_npm_feeder_import_file(mapping_path, template_path, output_path)
 
+
+
+def generate_cm602_feeder_import_batch_from_groups(mapping_path, template_path, output_dir_path):
+    mapping_file = Path(_clean_path(mapping_path))
+    if not mapping_file.is_file():
+        raise ServiceError(f"File Excel feeder mapping tidak ditemukan:\n{mapping_file}", title="File tidak ditemukan")
+
+    if not template_path:
+        raise ServiceError("Template program CM602 (Base file) harus dipilih.", title="Template wajib ada")
+        
+    template = Path(_clean_path(template_path))
+    if not template.is_file():
+        raise ServiceError(f"Template CM602 tidak ditemukan:\n{template}", title="File tidak ditemukan")
+
+    output_dir = Path(output_dir_path)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        workbook = load_workbook(mapping_file, data_only=True, read_only=True)
+    except Exception as exc:
+        raise ServiceError("File Excel feeder mapping tidak bisa dibaca.", title="Excel tidak valid") from exc
+
+    # Parse Summary sheet
+    group_pcbs = defaultdict(list)
+    if "Summary" in workbook.sheetnames:
+        ws_sum = workbook["Summary"]
+        header = None
+        group_idx = -1
+        pcb_idx = -1
+        for row in ws_sum.iter_rows(values_only=True):
+            vals = [_clean_excel_cell(c) for c in row]
+            if not any(vals):
+                continue
+            if header is None:
+                header_upper = [v.upper() for v in vals]
+                if "GROUP NAME" in header_upper and "PCB NAME" in header_upper:
+                    header = header_upper
+                    group_idx = header_upper.index("GROUP NAME")
+                    pcb_idx = header_upper.index("PCB NAME")
+            else:
+                if group_idx >= 0 and pcb_idx >= 0 and len(vals) > max(group_idx, pcb_idx):
+                    g_name = vals[group_idx]
+                    p_name = vals[pcb_idx]
+                    if g_name and p_name:
+                        if p_name not in group_pcbs[g_name]:
+                            group_pcbs[g_name].append(p_name)
+
+    # Read base lines
+    with open(template, "r", encoding="utf-8") as f:
+        base_lines = f.read().splitlines()
+
+    group_results = []
+    
+    for worksheet in workbook.worksheets:
+        if worksheet.title.lower() in {"summary", "summary sheet"}:
+            continue
+
+        records, _ = _read_import_mapping_sheet(worksheet)
+        if not records:
+            continue
+
+        sheet_title = worksheet.title
+        pcbs = group_pcbs.get(sheet_title, [])
+        if pcbs:
+            raw_filename = ", ".join(pcbs)
+        else:
+            raw_filename = sheet_title
+
+        clean_filename = re.sub(r'[\\/*?"<>|]', '_', raw_filename).strip()
+        if len(clean_filename) > 100:
+            clean_filename = sheet_title
+
+        if not clean_filename:
+            clean_filename = sheet_title
+
+        # Map records to Table/Slot/Side
+        group_map = {}
+        for r in records:
+            part = r.get("part_number")
+            loc = r.get("location_code")
+            if not part or not loc:
+                continue
+            parsed = _parse_import_location_code(loc)
+            if parsed:
+                table = parsed["table"]
+                slot = parsed["slot"]
+                side = parsed["side_char"].upper() if parsed.get("side_char") else ""
+                
+                # Using 'L' mapping to 'A' and 'R' mapping to 'B' conceptually
+                # In parsed, L becomes side 'A', R becomes side 'B'
+                # For CM602 txt generation we map part_A to parts[14] and part_B to parts[16]
+                side_mapped = "A" if side == "L" else "B"
+                
+                if (table, slot) not in group_map:
+                    group_map[(table, slot)] = {}
+                group_map[(table, slot)][side_mapped] = str(part).strip()
+
+        # Generate txt content
+        out_lines = []
+        in_feederfix = False
+        for line in base_lines:
+            if line.strip() == "[FeederFix]":
+                in_feederfix = True
+                out_lines.append(line)
+                continue
+            elif line.strip().startswith("[PaletteData]") or line.strip() == "":
+                in_feederfix = False
+                
+            if in_feederfix and line.startswith('"CM602'):
+                parts = line.split(" ")
+                if len(parts) >= 17:
+                    try:
+                        table = int(parts[1])
+                        slot = int(parts[2])
+                    except ValueError:
+                        out_lines.append(line)
+                        continue
+                        
+                    if (table, slot) in group_map:
+                        part_A = group_map[(table, slot)].get("A", "")
+                        part_B = group_map[(table, slot)].get("B", "")
+                        
+                        parts[14] = f'"{part_A}"' if part_A else '""'
+                        parts[16] = f'"{part_B}"' if part_B else '""'
+                        
+                        out_lines.append(" ".join(parts))
+                    else:
+                        out_lines.append(line)
+                else:
+                    out_lines.append(line)
+            else:
+                out_lines.append(line)
+
+        out_txt_path = output_dir / f"{clean_filename}_CM602_FIX.txt"
+        with open(out_txt_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(out_lines))
+            
+        group_results.append(NpmFeederImportResult(
+            output_path=out_txt_path.name,
+            mapping_row_count=len(records),
+            assignment_count=len(records),
+            assigned_part_count=len(records),
+            missing_part_rows=[],
+            missing_location_rows=[]
+        ))
+
+    workbook.close()
+
+    if not group_results:
+        raise ServiceError("Tidak ditemukan data fix feeder CM602 yang valid.", title="Data Kosong")
+
+    return NpmFeederImportBatchResult(
+        output_dir=str(output_dir),
+        mapping_file=mapping_file.name,
+        group_results=group_results,
+        total_groups=len(group_results),
+        successful_groups=len(group_results),
+        substitute_results=[],
+        total_substitute_files=0,
+    )
 
 def generate_npm_feeder_import_batch_from_groups_khusus_sub(mapping_path, template_path, output_dir_path):
     from services import feeder_mapping_service_khusus_sub

@@ -74,7 +74,7 @@ class AllTableFeederGroupPage(WorkerPage):
         line_type_layout = QHBoxLayout()
         line_type_label = QLabel("Pilih Tipe Line:")
         self.line_type_combo = QComboBox()
-        self.line_type_combo.addItems(["Line 1-5", "Line 6-7", "Line 8", "Line 9"])
+        self.line_type_combo.addItems(["Line 1-5", "Line 6-7", "Line 8", "Line 9", "CM602"])
         line_type_layout.addWidget(line_type_label)
         line_type_layout.addWidget(self.line_type_combo)
         line_type_layout.addStretch()
@@ -234,6 +234,12 @@ class AllTableFeederGroupPage(WorkerPage):
                     )
                 elif line_type == "Line 9":
                     fms.generate_npm_feeder_import_batch_from_groups_line9(
+                        mapping_path=saved_path, 
+                        template_path=base_npm, 
+                        output_dir_path=str(out_dir)
+                    )
+                elif line_type == "CM602":
+                    fms.generate_cm602_feeder_import_batch_from_groups(
                         mapping_path=saved_path, 
                         template_path=base_npm, 
                         output_dir_path=str(out_dir)

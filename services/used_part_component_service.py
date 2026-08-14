@@ -129,6 +129,7 @@ class BomReader:
 
         try:
             import pythoncom
+            import win32timezone
             import win32com.client as win32
         except ImportError as exc:
             raise ServiceError(

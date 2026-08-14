@@ -3,6 +3,8 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QDialog,
+    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
@@ -28,7 +30,8 @@ from services.pcb_group_matcher_service import (
     export_pcb_group_matcher_result,
     suggest_output_name,
 )
-from ui.pages.base import WorkerPage
+from ui.pages.base import WorkerPage, TaskWorker
+from services.pcb_group_matcher_service import generate_merged_fix_feeder_group
 from widgets.card import Card
 from widgets.file_picker import FilePicker
 from widgets.table_tools import configure_table, install_copy_menu
@@ -113,6 +116,16 @@ class PcbGroupMatcherPage(WorkerPage):
         self.group_picker.browse_requested.connect(self.browse_group_file)
         source_card.layout.addWidget(self.group_picker)
 
+        line_type_layout = QHBoxLayout()
+        line_type_label = QLabel("Tipe Line Mesin (Penting untuk mode Program Folder/Excel):")
+        line_type_label.setStyleSheet("font-weight: bold;")
+        self.line_type_combo = QComboBox()
+        self.line_type_combo.addItems(["Line 1-5", "Line 6-7", "Line 8", "Line 9", "CM602"])
+        line_type_layout.addWidget(line_type_label)
+        line_type_layout.addWidget(self.line_type_combo)
+        line_type_layout.addStretch()
+        source_card.layout.addLayout(line_type_layout)
+
         root.addWidget(source_card)
 
         # Action Bar
@@ -124,6 +137,12 @@ class PcbGroupMatcherPage(WorkerPage):
         self.export_btn = QPushButton("Export Result Excel")
         self.export_btn.setObjectName("SuccessButton")
         self.export_btn.setEnabled(False)
+
+        self.merge_btn = QPushButton("Merge & Generate Fix Feeder")
+        self.merge_btn.setObjectName("PrimaryButton")
+        self.merge_btn.setEnabled(False)
+        self.merge_btn.clicked.connect(self.show_merge_dialog)
+
         self.export_btn.clicked.connect(self.export_result)
 
         self.clear_btn = QPushButton("Clear")
@@ -132,8 +151,10 @@ class PcbGroupMatcherPage(WorkerPage):
 
         action_bar.addWidget(self.analyze_btn)
         action_bar.addWidget(self.export_btn)
+        action_bar.addWidget(self.merge_btn)
         action_bar.addWidget(self.clear_btn)
         action_bar.addStretch(1)
+
         root.addLayout(action_bar)
 
         # Table & Detail Splitter
@@ -183,6 +204,7 @@ class PcbGroupMatcherPage(WorkerPage):
         self.register_busy_widgets(
             self.analyze_btn,
             self.export_btn,
+            self.merge_btn,
             self.clear_btn,
             self.pcb_picker.button,
             self.group_picker.button,
@@ -268,6 +290,7 @@ class PcbGroupMatcherPage(WorkerPage):
             import_mode=self._get_selected_mode(),
             pcb_source_path=pcb_path,
             fix_feeder_group_path=group_path,
+            line_type=self.line_type_combo.currentText(),
         )
 
         self.progress.setVisible(True)
@@ -407,3 +430,125 @@ class PcbGroupMatcherPage(WorkerPage):
         self.summary_label.setText("0 GROUPS MATCHED")
         self.status_label.setText("Ready")
         self.export_btn.setEnabled(False)
+        self.merge_btn.setEnabled(False)
+
+    def show_merge_dialog(self):
+        indexes = self.result_table.selectionModel().selectedRows()
+        if not indexes or not self.matcher_result:
+            return
+            
+        match_item = self.matcher_result.group_matches[indexes[0].row()]
+        
+        dialog = MergeFeederDialog(match_item.group_name, self)
+        dialog.line_type_combo.setCurrentText(self.line_type_combo.currentText())
+        if dialog.exec() == QDialog.Accepted:
+            line_type = dialog.line_type_combo.currentText()
+            master_excel = dialog.master_picker.path()
+            base_npm = dialog.base_picker.path()
+            
+            output_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Save Merged Fix Feeder Group",
+                f"Merged_{match_item.group_name}.xlsx",
+                "Excel Workbook (*.xlsx)",
+            )
+            if not output_path:
+                return
+                
+            self._run_merge_task(match_item.group_name, line_type, master_excel, base_npm, output_path)
+
+    def _run_merge_task(self, group_name, line_type, master_excel, base_npm, output_path):
+        worker = None
+        def task():
+            return generate_merged_fix_feeder_group(
+                self.matcher_result,
+                group_name,
+                line_type,
+                master_excel,
+                output_path,
+                base_npm_path=base_npm,
+                progress_callback=worker.signals.progress.emit
+            )
+            
+        worker = TaskWorker(task)
+        worker._busy_text = "Merging Fix Feeder Group..."
+        self._workers.append(worker)
+        worker.signals.started.connect(lambda: self.set_busy(True, "Merging Fix Feeder Group..."))
+        worker.signals.progress.connect(self._on_progress_update)
+        worker.signals.result.connect(self._on_merge_done)
+        worker.signals.error.connect(self._show_worker_error)
+        worker.signals.finished.connect(lambda w=worker: self._finish_worker(w))
+        self.thread_pool.start(worker)
+
+    def _on_merge_done(self, result):
+        saved_path, unassigned_count = result
+        self.status_label.setText("Merge selesai!")
+        if unassigned_count > 0:
+            QMessageBox.warning(self, "Merge Selesai dengan Peringatan", f"Berhasil membuat grup merged.\nNamun ada {unassigned_count} komponen yang gagal ditempatkan karena kapasitas mesin tidak cukup atau tidak ada di Master Mapping.\nFile tersimpan di: {saved_path}")
+        else:
+            QMessageBox.information(self, "Merge Selesai", f"Berhasil membuat grup merged!\nSemua komponen sukses ditempatkan.\nFile tersimpan di: {saved_path}")
+
+
+class MergeFeederDialog(QDialog):
+    def __init__(self, group_name, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Merge to {group_name}")
+        self.setMinimumWidth(500)
+        
+        layout = QVBoxLayout(self)
+        
+        line_layout = QHBoxLayout()
+        line_layout.addWidget(QLabel("Tipe Line:"))
+        self.line_type_combo = QComboBox()
+        self.line_type_combo.addItems(["Line 1-5", "Line 6-7", "Line 8", "Line 9", "CM602"])
+        line_layout.addWidget(self.line_type_combo)
+        line_layout.addStretch()
+        layout.addLayout(line_layout)
+        
+        self.master_picker = FilePicker("Master Mapping Excel:")
+        self.master_picker.browse_requested.connect(self.browse_master)
+        layout.addWidget(self.master_picker)
+        
+        self.base_picker = FilePicker("Base NPM File (.txt/.crb) (Opsional):")
+        self.base_picker.browse_requested.connect(self.browse_base)
+        layout.addWidget(self.base_picker)
+        
+        btn_layout = QHBoxLayout()
+        self.ok_btn = QPushButton("Generate")
+        self.ok_btn.setObjectName("PrimaryButton")
+        self.ok_btn.clicked.connect(self.validate_and_accept)
+        
+        self.cancel_btn = QPushButton("Batal")
+        self.cancel_btn.clicked.connect(self.reject)
+        
+        btn_layout.addStretch()
+        btn_layout.addWidget(self.cancel_btn)
+        btn_layout.addWidget(self.ok_btn)
+        
+        layout.addLayout(btn_layout)
+
+    def browse_master(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Pilih File Master Mapping",
+            "",
+            "Excel Files (*.xlsx *.xls *.xlsm);;All Files (*)"
+        )
+        if path:
+            self.master_picker.set_path(path)
+            
+    def browse_base(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Pilih Base NPM File",
+            "",
+            "Text Files (*.txt);;CRB Files (*.crb);;All Files (*)"
+        )
+        if path:
+            self.base_picker.set_path(path)
+
+    def validate_and_accept(self):
+        if not self.master_picker.path():
+            QMessageBox.warning(self, "Error", "Master Mapping Excel wajib diisi!")
+            return
+        self.accept()
