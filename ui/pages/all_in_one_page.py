@@ -102,11 +102,17 @@ class AllInOneComparatorPage(WorkerPage):
         table_card.layout.addWidget(table_title)
         self.result_model = RecordTableModel(
             [
-                ColumnSpec("ref", "Ref", Qt.AlignCenter, 110),
-                ColumnSpec("system", "System", Qt.AlignCenter, 80),
-                ColumnSpec("status", "Status", Qt.AlignCenter, 180),
-                ColumnSpec("source", "Source (Mesin/Ori)", Qt.AlignLeft, 380),
-                ColumnSpec("target", "Target (TXT)", Qt.AlignLeft, 380),
+                ColumnSpec("ref", "Ref", Qt.AlignCenter, 80),
+                ColumnSpec("system", "System", Qt.AlignCenter, 60),
+                ColumnSpec("status", "Status", Qt.AlignCenter, 150),
+                ColumnSpec("src_part", "Src Part", Qt.AlignLeft, 120),
+                ColumnSpec("src_x", "Src X", Qt.AlignCenter, 70),
+                ColumnSpec("src_y", "Src Y", Qt.AlignCenter, 70),
+                ColumnSpec("src_angle", "Src Ang", Qt.AlignCenter, 60),
+                ColumnSpec("tgt_part", "Tgt Part", Qt.AlignLeft, 120),
+                ColumnSpec("tgt_x", "Tgt X", Qt.AlignCenter, 70),
+                ColumnSpec("tgt_y", "Tgt Y", Qt.AlignCenter, 70),
+                ColumnSpec("tgt_angle", "Tgt Ang", Qt.AlignCenter, 60),
             ],
             status_key="status",
             theme=self.theme_manager.theme,

@@ -299,8 +299,10 @@ def get_rows(system_name, txt_data, machine_data):
         if in_txt and in_machine:
             target = txt_data[ref]
             source = machine_data[ref]
-            source_str = f"{source['pn']} | {source['x']:.3f}/{source['y']:.3f} | {source['angle']:.3f}"
-            target_str = f"{target['pn']} | {target['x']:.3f}/{target['y']:.3f} | {target['angle']:.3f}"
+            
+            s_pn, s_x, s_y, s_angle = _machine_row_args(source)
+            t_pn, t_x, t_y, t_angle = _machine_row_args(target)
+
             diffs = []
             if target["pn"].upper() != source["pn"].upper():
                 diffs.append("P/N")
@@ -311,15 +313,15 @@ def get_rows(system_name, txt_data, machine_data):
 
             is_match = len(diffs) == 0
             status = "MATCH" if is_match else "BEDA " + ", ".join(diffs)
-            rows.append(_record(ref, system_name, status, source_str, target_str, "match" if is_match else "error"))
+            rows.append(_record(ref, system_name, status, s_pn, s_x, s_y, s_angle, t_pn, t_x, t_y, t_angle, "match" if is_match else "error"))
         elif in_txt:
             target = txt_data[ref]
-            target_str = f"{target['pn']} | {target['x']:.3f}/{target['y']:.3f} | {target['angle']:.3f}"
-            rows.append(_record(ref, system_name, "ADD (Hanya di TXT)", "-", target_str, "add"))
+            t_pn, t_x, t_y, t_angle = _machine_row_args(target)
+            rows.append(_record(ref, system_name, "ADD (Hanya di TXT)", "-", "-", "-", "-", t_pn, t_x, t_y, t_angle, "add"))
         else:
             source = machine_data[ref]
-            source_str = f"{source['pn']} | {source['x']:.3f}/{source['y']:.3f} | {source['angle']:.3f}"
-            rows.append(_record(ref, system_name, "REMOVE (Hanya di Mesin)", source_str, "-", "remove"))
+            s_pn, s_x, s_y, s_angle = _machine_row_args(source)
+            rows.append(_record(ref, system_name, "REMOVE (Hanya di Mesin)", s_pn, s_x, s_y, s_angle, "-", "-", "-", "-", "remove"))
     return rows
 
 
@@ -341,6 +343,10 @@ def get_machine_service_rows(system_name, machine_path, program_path, machine_ty
 
         machine_row = machine_dict.get(ref)
         program_row = program_dict.get(ref)
+        
+        s_pn, s_x, s_y, s_angle = _machine_row_args(machine_row)
+        t_pn, t_x, t_y, t_angle = _machine_row_args(program_row)
+        
         if machine_row is not None and program_row is not None:
             diff_type = diff_type_by_ref.get(ref)
             if diff_type is None:
@@ -353,15 +359,15 @@ def get_machine_service_rows(system_name, machine_path, program_path, machine_ty
                     ref,
                     system_name,
                     status,
-                    _machine_row_text(machine_row),
-                    _machine_row_text(program_row),
+                    s_pn, s_x, s_y, s_angle,
+                    t_pn, t_x, t_y, t_angle,
                     "match" if status == "MATCH" else "error",
                 )
             )
         elif program_row is not None:
-            rows.append(_record(ref, system_name, "ADD (Hanya di TXT)", "-", _machine_row_text(program_row), "add"))
+            rows.append(_record(ref, system_name, "ADD (Hanya di TXT)", "-", "-", "-", "-", t_pn, t_x, t_y, t_angle, "add"))
         else:
-            rows.append(_record(ref, system_name, "REMOVE (Hanya di Mesin)", _machine_row_text(machine_row), "-", "remove"))
+            rows.append(_record(ref, system_name, "REMOVE (Hanya di Mesin)", s_pn, s_x, s_y, s_angle, "-", "-", "-", "-", "remove"))
 
     return rows
 
@@ -380,11 +386,11 @@ def get_bom_rows(txt_data, ori_data):
             source_pn = ori_data[ref]
             is_match = target_pn.upper() == source_pn.upper()
             status = "MATCH" if is_match else "BEDA P/N"
-            rows.append(_record(ref, "BOM", status, source_pn, target_pn, "match" if is_match else "error"))
+            rows.append(_record(ref, "BOM", status, source_pn, "-", "-", "-", target_pn, "-", "-", "-", "match" if is_match else "error"))
         elif in_txt:
-            rows.append(_record(ref, "BOM", "ADD (Hanya di TXT)", "-", txt_data[ref], "add"))
+            rows.append(_record(ref, "BOM", "ADD (Hanya di TXT)", "-", "-", "-", "-", txt_data[ref], "-", "-", "-", "add"))
         else:
-            rows.append(_record(ref, "BOM", "REMOVE (Hanya di Ori)", ori_data[ref], "-", "remove"))
+            rows.append(_record(ref, "BOM", "REMOVE (Hanya di Ori)", ori_data[ref], "-", "-", "-", "-", "-", "-", "-", "remove"))
     return rows
 
 
@@ -431,6 +437,16 @@ def _machine_row_text(row):
         f"{_format_float(row.get('x', ''))}/{_format_float(row.get('y', ''))} | "
         f"{_format_float(row.get('angle', ''))}"
     )
+
+
+def _machine_row_args(row):
+    if row is None:
+        return "-", "-", "-", "-"
+    pn = row.get('parts', row.get('pn', '-'))
+    x = _format_float(row.get('x', '-'))
+    y = _format_float(row.get('y', '-'))
+    angle = _format_float(row.get('angle', '-'))
+    return pn, x, y, angle
 
 
 def _format_float(value):
@@ -515,16 +531,22 @@ def filter_results(results, filter_type):
     return filtered
 
 
-def _record(ref, system, status, source, target, tag):
+def _record(ref, system, status, src_part, src_x, src_y, src_angle, tgt_part, tgt_x, tgt_y, tgt_angle, tag):
     diff_keys = []
     if status != "MATCH":
-        diff_keys = ["status", "source", "target"]
+        diff_keys = ["status", "src_part", "src_x", "src_y", "src_angle", "tgt_part", "tgt_x", "tgt_y", "tgt_angle"]
     return {
         "ref": ref,
         "system": system,
         "status": status,
-        "source": source,
-        "target": target,
+        "src_part": src_part,
+        "src_x": src_x,
+        "src_y": src_y,
+        "src_angle": src_angle,
+        "tgt_part": tgt_part,
+        "tgt_x": tgt_x,
+        "tgt_y": tgt_y,
+        "tgt_angle": tgt_angle,
         "tag": tag,
         "_diff_keys": diff_keys,
     }
