@@ -566,6 +566,11 @@ def prepare_bm221_sync(file_path, diff_results):
             current_section = line.strip()
             output_lines.append(line)
             if current_section == "%SETUP":
+                def extract_z(line):
+                    match = re.search(r"^Z(\d+)", line)
+                    return int(match.group(1)) if match else 99999
+                
+                setup_lines.sort(key=extract_z)
                 output_lines.extend(setup_lines)
             elif current_section == "%NCDATA":
                 # Need to re-number N lines

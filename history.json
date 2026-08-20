@@ -1,5 +1,296 @@
 [
     {
+        "timestamp": "2026-08-20 08:34:09",
+        "txt_file": "Machine: SYNC_P30452709_T_7402-RC.POS",
+        "tsv_file": "Program: BM.txt",
+        "add_count": 0,
+        "cng_count": 0,
+        "del_count": 0,
+        "results": []
+    },
+    {
+        "timestamp": "2026-08-20 08:33:33",
+        "txt_file": "Machine: P30452709_T_7402-RC.POS",
+        "tsv_file": "Program: BM.txt",
+        "add_count": 2,
+        "cng_count": 26,
+        "del_count": 6,
+        "results": [
+            [
+                "IC100",
+                "ALL",
+                "",
+                "99.219|73.200|0|EAN00985801",
+                "ADD",
+                "Circuit found in Program but missing from Machine file"
+            ],
+            [
+                "IC101",
+                "ALL",
+                "Present",
+                "",
+                "DEL",
+                "Circuit found in Machine but missing from Program file"
+            ],
+            [
+                "IC401",
+                "ALL",
+                "Present",
+                "",
+                "DEL",
+                "Circuit found in Machine but missing from Program file"
+            ],
+            [
+                "IC402",
+                "ALL",
+                "Present",
+                "",
+                "DEL",
+                "Circuit found in Machine but missing from Program file"
+            ],
+            [
+                "IC8800",
+                "X Coordinate",
+                "141.500",
+                "66.269",
+                "CNG",
+                "Mismatch in X Coordinate"
+            ],
+            [
+                "IC8800",
+                "Y Coordinate",
+                "52.500",
+                "69.200",
+                "CNG",
+                "Mismatch in Y Coordinate"
+            ],
+            [
+                "IC8800",
+                "Angle",
+                "90.0",
+                "0",
+                "CNG",
+                "Mismatch in Angle"
+            ],
+            [
+                "IC10600",
+                "ALL",
+                "Present",
+                "",
+                "DEL",
+                "Circuit found in Machine but missing from Program file"
+            ],
+            [
+                "IC10700",
+                "ALL",
+                "Present",
+                "",
+                "DEL",
+                "Circuit found in Machine but missing from Program file"
+            ],
+            [
+                "JK3100",
+                "ALL",
+                "",
+                "120.500|172.850|180|EAG66129808",
+                "ADD",
+                "Circuit found in Program but missing from Machine file"
+            ],
+            [
+                "JK3101",
+                "X Coordinate",
+                "4.000",
+                "144.500",
+                "CNG",
+                "Mismatch in X Coordinate"
+            ],
+            [
+                "JK3101",
+                "Y Coordinate",
+                "89.750",
+                "172.850",
+                "CNG",
+                "Mismatch in Y Coordinate"
+            ],
+            [
+                "JK3101",
+                "Angle",
+                "270.0",
+                "180",
+                "CNG",
+                "Mismatch in Angle"
+            ],
+            [
+                "JK3101",
+                "Parts",
+                "EAG66129806",
+                "EAG66129808",
+                "CNG",
+                "Mismatch in Parts"
+            ],
+            [
+                "JK3102",
+                "X Coordinate",
+                "4.000",
+                "169.850",
+                "CNG",
+                "Mismatch in X Coordinate"
+            ],
+            [
+                "JK3102",
+                "Y Coordinate",
+                "113.750",
+                "89.250",
+                "CNG",
+                "Mismatch in Y Coordinate"
+            ],
+            [
+                "JK3102",
+                "Parts",
+                "EAG66129806",
+                "EAG66129904",
+                "CNG",
+                "Mismatch in Parts"
+            ],
+            [
+                "JK3103",
+                "X Coordinate",
+                "4.000",
+                "169.850",
+                "CNG",
+                "Mismatch in X Coordinate"
+            ],
+            [
+                "JK3103",
+                "Y Coordinate",
+                "137.750",
+                "65.250",
+                "CNG",
+                "Mismatch in Y Coordinate"
+            ],
+            [
+                "JK3103",
+                "Parts",
+                "EAG66129806",
+                "EAG66129904",
+                "CNG",
+                "Mismatch in Parts"
+            ],
+            [
+                "JK3104",
+                "ALL",
+                "Present",
+                "",
+                "DEL",
+                "Circuit found in Machine but missing from Program file"
+            ],
+            [
+                "JK4200",
+                "X Coordinate",
+                "6.800",
+                "96.500",
+                "CNG",
+                "Mismatch in X Coordinate"
+            ],
+            [
+                "JK4200",
+                "Y Coordinate",
+                "161.750",
+                "171.000",
+                "CNG",
+                "Mismatch in Y Coordinate"
+            ],
+            [
+                "JK4200",
+                "Angle",
+                "90.0",
+                "0",
+                "CNG",
+                "Mismatch in Angle"
+            ],
+            [
+                "JK4200",
+                "Parts",
+                "EAG62571101",
+                "EAG00474201",
+                "CNG",
+                "Mismatch in Parts"
+            ],
+            [
+                "P4001",
+                "X Coordinate",
+                "210.800",
+                "212.000",
+                "CNG",
+                "Mismatch in X Coordinate"
+            ],
+            [
+                "P4001",
+                "Y Coordinate",
+                "167.100",
+                "62.000",
+                "CNG",
+                "Mismatch in Y Coordinate"
+            ],
+            [
+                "P4001",
+                "Angle",
+                "0.0",
+                "270",
+                "CNG",
+                "Mismatch in Angle"
+            ],
+            [
+                "P7601",
+                "X Coordinate",
+                "258.100",
+                "131.186",
+                "CNG",
+                "Mismatch in X Coordinate"
+            ],
+            [
+                "P7601",
+                "Y Coordinate",
+                "109.200",
+                "10.200",
+                "CNG",
+                "Mismatch in Y Coordinate"
+            ],
+            [
+                "P7601",
+                "Angle",
+                "270.0",
+                "180",
+                "CNG",
+                "Mismatch in Angle"
+            ],
+            [
+                "P7602",
+                "X Coordinate",
+                "258.100",
+                "96.186",
+                "CNG",
+                "Mismatch in X Coordinate"
+            ],
+            [
+                "P7602",
+                "Y Coordinate",
+                "65.350",
+                "10.200",
+                "CNG",
+                "Mismatch in Y Coordinate"
+            ],
+            [
+                "P7602",
+                "Angle",
+                "270.0",
+                "180",
+                "CNG",
+                "Mismatch in Angle"
+            ]
+        ]
+    },
+    {
         "timestamp": "2026-08-14 07:31:44",
         "mode": "TXT vs BOM File",
         "txt_file": "____BOM-PG_____.txt",
