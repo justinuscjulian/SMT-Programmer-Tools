@@ -247,7 +247,7 @@ def compare_machine(machine_df, program_df):
                         )
                     )
         elif machine_row is None:
-            diffs.append((circuit, "ALL", "", "Present", "ADD", "Circuit found in Program but missing from Machine file"))
+            diffs.append((circuit, "ALL", "", f"{program_row['x']}|{program_row['y']}|{program_row['angle']}|{program_row['parts']}", "ADD", "Circuit found in Program but missing from Machine file"))
         else:
             diffs.append((circuit, "ALL", "Present", "", "DEL", "Circuit found in Machine but missing from Program file"))
 
@@ -376,86 +376,208 @@ def export_machine_preview(machine_rows, program_rows, file_path):
     ).to_excel(file_path, index=False)
 
 
+
+def _load_ohm_ini_database():
+    import os
+    file_path = r"C:\PROGRAMMER\≪ OHM_INI ≫.xlsb"
+    if not os.path.isfile(file_path):
+        return {}
+    
+    import win32com.client
+    excel = win32com.client.DispatchEx("Excel.Application")
+    excel.Visible = False
+    excel.DisplayAlerts = False
+    lib = {}
+    try:
+        wb = excel.Workbooks.Open(file_path, ReadOnly=True)
+        ws = wb.Worksheets(2)
+        data = ws.UsedRange.Value
+        if data:
+            for i, row in enumerate(data):
+                if i == 0: continue
+                if len(row) > 4:
+                    part = str(row[0] or "").strip()
+                    spec = str(row[1] or "").strip()
+                    fd = str(row[4] or "").strip()
+                    if part:
+                        lib[part] = {"spec": spec, "fd": fd}
+    except Exception as e:
+        print(f"Failed to read OHM_INI: {e}")
+    finally:
+        try: wb.Close(False)
+        except: pass
+        excel.Quit()
+    return lib
+
 def prepare_bm221_sync(file_path, diff_results):
     try:
         with open(file_path, "r", encoding="latin-1") as handle:
-            content = handle.readlines()
+            lines = handle.readlines()
     except Exception as exc:
         raise ServiceError(f"Gagal membaca file .POS:\n{exc}") from exc
 
-    machine_circuit_to_z = {}
-    setup_z_to_line_idx = {}
-    ncdata_circuit_to_line_idx = {}
-
+    ohm_ini = None
+    
+    setup_lines = []
+    ncdata_lines = []
+    other_lines = []
+    
     current_section = None
-    for i, line in enumerate(content):
+    for i, line in enumerate(lines):
         stripped = line.strip()
         if stripped.startswith("%"):
             current_section = stripped
+            other_lines.append(line)
             continue
-
+            
         if current_section == "%SETUP":
-            match = re.search(r"^(Z\d+)PC\(", stripped)
-            if match:
-                setup_z_to_line_idx[match.group(1)] = i
+            setup_lines.append(line)
         elif current_section == "%NCDATA":
-            c_match = re.search(r"C\((.*?)\)", stripped)
-            z_match = re.search(r"(Z\d+)", stripped)
-            if c_match and z_match:
-                circuit = c_match.group(1).strip()
-                machine_circuit_to_z[circuit] = z_match.group(1)
-                ncdata_circuit_to_line_idx[circuit] = i
+            ncdata_lines.append(line)
+        else:
+            other_lines.append(line)
 
-    skipped_tray_circuits = set()
+    machine_circuit_to_z = {}
+    
+    for line in ncdata_lines:
+        c_match = re.search(r"C\((.*?)\)", line)
+        z_match = re.search(r"(Z\d+)", line)
+        if c_match and z_match:
+            machine_circuit_to_z[c_match.group(1).strip()] = z_match.group(1)
+            
+    part_to_z = {}
+    for line in setup_lines:
+        z_match = re.search(r"^(Z\d+)PC\(", line)
+        pc_match = re.search(r"PC\((.*?)\)", line)
+        if z_match and pc_match:
+            part_to_z[pc_match.group(1).strip()] = z_match.group(1)
+            
+    feeder_zs = [int(z[1:]) for z in part_to_z.values() if int(z[1:]) < 100]
+    tray_zs = [int(z[1:]) for z in part_to_z.values() if int(z[1:]) >= 200]
+    
+    max_feeder_z = max(feeder_zs) if feeder_zs else 10
+    max_tray_z = max(tray_zs) if tray_zs else 200
+
+    def get_or_create_z(part):
+        nonlocal max_feeder_z, max_tray_z, ohm_ini, part_to_z, setup_lines
+        if part in part_to_z:
+            return part_to_z[part]
+            
+        if ohm_ini is None:
+            ohm_ini = _load_ohm_ini_database()
+            
+        info = ohm_ini.get(part, {})
+        fd = info.get("fd", "")
+        spec_full = info.get("spec", part)
+        
+        is_tray = "TRAY" in fd.upper()
+        
+        if is_tray:
+            max_tray_z += 1
+            z_num = f"Z{max_tray_z}"
+            spec_8 = (spec_full + "        ")[:8]
+            pn_20 = (spec_full + "                    ")[:20]
+            pc_15 = (part + "               ")[:15]
+            new_setup = f"{z_num}PC({pc_15})PN({pn_20})ST0VO(0,0)SZ0VH0SC({spec_8})JN1\n"
+        else:
+            max_feeder_z = ((max_feeder_z // 5) + 1) * 5
+            z_num = f"Z{max_feeder_z}"
+            pc_15 = (part + "               ")[:15]
+            pn_20 = (spec_full + "                    ")[:20]
+            new_setup = f"{z_num}PC({pc_15})PN({pn_20})ST0VO(-300,-800)SZ0VH0SC()JN1\n"
+            
+        part_to_z[part] = z_num
+        setup_lines.append(new_setup)
+        return z_num
+
     replacements_made = 0
-
+    skipped_tray_circuits = set()
+    
+    # Track circuits to delete
+    circuits_to_delete = set()
+    
+    # Process diffs
     for diff in diff_results:
-        circuit = diff[0]
-        field = diff[1]
-        program_value = diff[3]
-        diff_type = diff[4]
+        circuit, field, _, program_value, diff_type, _ = diff
+        
+        if diff_type == "DEL":
+            circuits_to_delete.add(circuit)
+            replacements_made += 1
+                
+        elif diff_type == "CNG":
+            for idx, line in enumerate(ncdata_lines):
+                c_match = re.search(r"C\((.*?)\)", line)
+                if c_match and c_match.group(1).strip() == circuit:
+                    orig_line = ncdata_lines[idx]
+                    if field == "Parts":
+                        new_z = get_or_create_z(program_value)
+                        ncdata_lines[idx] = re.sub(r"Z\d+", new_z, orig_line)
+                        replacements_made += 1
+                    elif field == "X Coordinate":
+                        try:
+                            val = str(int(round(float(program_value) * 1000)))
+                            ncdata_lines[idx] = re.sub(r"X-?\d+", f"X{val}", orig_line)
+                            replacements_made += 1
+                        except: pass
+                    elif field == "Y Coordinate":
+                        try:
+                            val = str(int(round(float(program_value) * 1000)))
+                            ncdata_lines[idx] = re.sub(r"Y-?\d+", f"Y{val}", orig_line)
+                            replacements_made += 1
+                        except: pass
+                    elif field == "Angle":
+                        try:
+                            val = str(int(round(float(program_value) * 100)))
+                            ncdata_lines[idx] = re.sub(r"V-?\d+", f"V{val}", orig_line)
+                            replacements_made += 1
+                        except: pass
 
-        if diff_type != "CNG":
+        elif diff_type == "ADD":
+            # format: X|Y|Angle|Parts
+            parts_arr = program_value.split("|")
+            if len(parts_arr) == 4:
+                x_val_str = str(int(round(float(parts_arr[0]) * 1000)))
+                y_val_str = str(int(round(float(parts_arr[1]) * 1000)))
+                v_val_str = str(int(round(float(parts_arr[2]) * 100)))
+                part_val = parts_arr[3]
+                
+                new_z = get_or_create_z(part_val)
+                # Assign MH arbitrarily or based on Tray/Feeder. 
+                # For demo, let's use MH4 for Tray and MH8 for Feeder
+                mh = "MH4" if int(new_z[1:]) >= 200 else "MH8"
+                circuit_pad = (circuit + "        ")[:8]
+                new_ncdata_line = f"N0X{x_val_str}Y{y_val_str}V{v_val_str}{new_z}{mh}C({circuit_pad})H0M000000SM0PW0BD1MN0BN0/0\n"
+                ncdata_lines.append(new_ncdata_line)
+                replacements_made += 1
+
+    # Filter out deleted circuits
+    final_ncdata = []
+    for line in ncdata_lines:
+        c_match = re.search(r"C\((.*?)\)", line)
+        if c_match and c_match.group(1).strip() in circuits_to_delete:
             continue
+        final_ncdata.append(line)
+        
+    # Reconstruct lines
+    output_lines = []
+    current_section = None
+    for line in lines:
+        if line.strip().startswith("%"):
+            current_section = line.strip()
+            output_lines.append(line)
+            if current_section == "%SETUP":
+                output_lines.extend(setup_lines)
+            elif current_section == "%NCDATA":
+                # Need to re-number N lines
+                for idx, nc_line in enumerate(final_ncdata):
+                    # Replace Nxxx with N(idx+1)
+                    new_nc = re.sub(r"^N\d+", f"N{idx+1}", nc_line)
+                    output_lines.append(new_nc)
+        else:
+            if current_section not in ["%SETUP", "%NCDATA"]:
+                output_lines.append(line)
 
-        if field == "Parts":
-            machine_z = machine_circuit_to_z.get(circuit)
-            if not machine_z:
-                continue
-
-            machine_z_num = int(machine_z[1:]) if machine_z[1:].isdigit() else 0
-            if machine_z_num >= 200:
-                skipped_tray_circuits.add(circuit)
-                continue
-
-            line_idx = setup_z_to_line_idx.get(machine_z)
-            if line_idx is not None:
-                original_line = content[line_idx]
-                padded = str(program_value).ljust(15)
-                content[line_idx] = re.sub(r"PC\([^)]*\)", f"PC({padded})", original_line)
-                replacements_made += 1
-        elif field in ["X Coordinate", "Y Coordinate", "Angle"]:
-            line_idx = ncdata_circuit_to_line_idx.get(circuit)
-            if line_idx is None:
-                continue
-
-            original_line = content[line_idx]
-            try:
-                if field == "X Coordinate":
-                    value = str(int(round(float(program_value) * 1000)))
-                    content[line_idx] = re.sub(r"X-?\d+", f"X{value}", original_line)
-                elif field == "Y Coordinate":
-                    value = str(int(round(float(program_value) * 1000)))
-                    content[line_idx] = re.sub(r"Y-?\d+", f"Y{value}", original_line)
-                elif field == "Angle":
-                    value = str(int(round(float(program_value) * 100)))
-                    content[line_idx] = re.sub(r"V-?\d+", f"V{value}", original_line)
-                replacements_made += 1
-            except ValueError:
-                pass
-
-    return SyncPrepareResult(content, replacements_made, skipped_tray_circuits)
-
+    return SyncPrepareResult(output_lines, replacements_made, skipped_tray_circuits)
 
 def write_pos_file(content, save_path):
     try:

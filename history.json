@@ -1,0 +1,304 @@
+[
+    {
+        "timestamp": "2026-08-14 07:31:44",
+        "mode": "TXT vs BOM File",
+        "txt_file": "____BOM-PG_____.txt",
+        "tsv_file": "EBU30660751.tsv",
+        "add_count": 4,
+        "cng_count": 10,
+        "del_count": 3,
+        "results": [
+            [
+                "C1008",
+                "TOP",
+                "",
+                "0CK101BK4EA",
+                "ADD",
+                "Component found in BOM File but missing from Reference .txt."
+            ],
+            [
+                "C2501",
+                "TOP",
+                "",
+                "EAE62303301",
+                "ADD",
+                "Component found in BOM File but missing from Reference .txt."
+            ],
+            [
+                "R1006",
+                "TOP",
+                "",
+                "0RJ1000C678",
+                "ADD",
+                "Component found in BOM File but missing from Reference .txt."
+            ],
+            [
+                "R1011",
+                "TOP",
+                "",
+                "0RJ4701C678",
+                "ADD",
+                "Component found in BOM File but missing from Reference .txt."
+            ],
+            [
+                "C1014",
+                "TOP",
+                "EAE62303302",
+                "EAE62303301",
+                "CNG",
+                "Part number mismatch on identical RefDes identifier."
+            ],
+            [
+                "C2503",
+                "TOP",
+                "EAE66302102",
+                "EAE66302101",
+                "CNG",
+                "Part number mismatch on identical RefDes identifier."
+            ],
+            [
+                "C4104",
+                "TOP",
+                "EAE66354402",
+                "EAE66354401",
+                "CNG",
+                "Part number mismatch on identical RefDes identifier."
+            ],
+            [
+                "C4111",
+                "TOP",
+                "EAE62303302",
+                "EAE62303301",
+                "CNG",
+                "Part number mismatch on identical RefDes identifier."
+            ],
+            [
+                "C9100",
+                "TOP",
+                "0CK105CK56C",
+                "0CK105CK56A",
+                "CNG",
+                "Part number mismatch on identical RefDes identifier."
+            ],
+            [
+                "C9104",
+                "TOP",
+                "0CK105CK56C",
+                "0CK105CK56A",
+                "CNG",
+                "Part number mismatch on identical RefDes identifier."
+            ],
+            [
+                "C9106",
+                "TOP",
+                "0CK105CK56C",
+                "0CK105CK56A",
+                "CNG",
+                "Part number mismatch on identical RefDes identifier."
+            ],
+            [
+                "C9107",
+                "TOP",
+                "0CK105CK56C",
+                "0CK105CK56A",
+                "CNG",
+                "Part number mismatch on identical RefDes identifier."
+            ],
+            [
+                "C9108",
+                "TOP",
+                "0CK105CK56C",
+                "0CK105CK56A",
+                "CNG",
+                "Part number mismatch on identical RefDes identifier."
+            ],
+            [
+                "C9110",
+                "TOP",
+                "0CK105CK56C",
+                "0CK105CK56A",
+                "CNG",
+                "Part number mismatch on identical RefDes identifier."
+            ],
+            [
+                "C1009",
+                "",
+                "0CK101BK4EA",
+                "",
+                "DEL",
+                "RefDes present in Reference .txt but missing from BOM File."
+            ],
+            [
+                "C1010",
+                "",
+                "0CK101BK4EA",
+                "",
+                "DEL",
+                "RefDes present in Reference .txt but missing from BOM File."
+            ],
+            [
+                "C1012",
+                "",
+                "0CK101BK4EA",
+                "",
+                "DEL",
+                "RefDes present in Reference .txt but missing from BOM File."
+            ]
+        ]
+    },
+    {
+        "timestamp": "2026-08-14 07:28:49",
+        "mode": "TXT vs BOM File",
+        "txt_file": "____BOM-PG_____.txt",
+        "tsv_file": "EBU30660751.tsv",
+        "add_count": 3,
+        "cng_count": 10,
+        "del_count": 5,
+        "results": [
+            [
+                "C1009",
+                "TOP",
+                "",
+                "0CK101BK4EA",
+                "ADD",
+                "Component found in BOM File but missing from Reference .txt."
+            ],
+            [
+                "C1010",
+                "TOP",
+                "",
+                "0CK101BK4EA",
+                "ADD",
+                "Component found in BOM File but missing from Reference .txt."
+            ],
+            [
+                "C1012",
+                "TOP",
+                "",
+                "0CK101BK4EA",
+                "ADD",
+                "Component found in BOM File but missing from Reference .txt."
+            ],
+            [
+                "C1014",
+                "TOP",
+                "EAE62303301",
+                "EAE62303302",
+                "CNG",
+                "Part number mismatch on identical RefDes identifier."
+            ],
+            [
+                "C2503",
+                "TOP",
+                "EAE66302101",
+                "EAE66302102",
+                "CNG",
+                "Part number mismatch on identical RefDes identifier."
+            ],
+            [
+                "C4104",
+                "TOP",
+                "EAE66354401",
+                "EAE66354402",
+                "CNG",
+                "Part number mismatch on identical RefDes identifier."
+            ],
+            [
+                "C4111",
+                "TOP",
+                "EAE62303301",
+                "EAE62303302",
+                "CNG",
+                "Part number mismatch on identical RefDes identifier."
+            ],
+            [
+                "C9100",
+                "TOP",
+                "0CK105CK56A",
+                "0CK105CK56C",
+                "CNG",
+                "Part number mismatch on identical RefDes identifier."
+            ],
+            [
+                "C9104",
+                "TOP",
+                "0CK105CK56A",
+                "0CK105CK56C",
+                "CNG",
+                "Part number mismatch on identical RefDes identifier."
+            ],
+            [
+                "C9106",
+                "TOP",
+                "0CK105CK56A",
+                "0CK105CK56C",
+                "CNG",
+                "Part number mismatch on identical RefDes identifier."
+            ],
+            [
+                "C9107",
+                "TOP",
+                "0CK105CK56A",
+                "0CK105CK56C",
+                "CNG",
+                "Part number mismatch on identical RefDes identifier."
+            ],
+            [
+                "C9108",
+                "TOP",
+                "0CK105CK56A",
+                "0CK105CK56C",
+                "CNG",
+                "Part number mismatch on identical RefDes identifier."
+            ],
+            [
+                "C9110",
+                "TOP",
+                "0CK105CK56A",
+                "0CK105CK56C",
+                "CNG",
+                "Part number mismatch on identical RefDes identifier."
+            ],
+            [
+                "C1008",
+                "",
+                "0CK101BK4EA",
+                "",
+                "DEL",
+                "RefDes present in Reference .txt but missing from BOM File."
+            ],
+            [
+                "C2501",
+                "",
+                "EAE62303301",
+                "",
+                "DEL",
+                "RefDes present in Reference .txt but missing from BOM File."
+            ],
+            [
+                "IC100",
+                "",
+                "EAN01016101",
+                "",
+                "DEL",
+                "RefDes present in Reference .txt but missing from BOM File."
+            ],
+            [
+                "R1006",
+                "",
+                "0RJ1000C678",
+                "",
+                "DEL",
+                "RefDes present in Reference .txt but missing from BOM File."
+            ],
+            [
+                "R1011",
+                "",
+                "0RJ4701C678",
+                "",
+                "DEL",
+                "RefDes present in Reference .txt but missing from BOM File."
+            ]
+        ]
+    }
+]
